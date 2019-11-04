@@ -13,10 +13,11 @@
 namespace {
 
 constexpr char kTextPlainFormat[] = "text/plain";
+const UInt32 kKeyPressClickSoundId = 1306;
 
 }  // namespaces
 
-namespace shell {
+namespace flutter {
 
 // TODO(abarth): Move these definitions from system_chrome_impl.cc to here.
 const char* const kOrientationUpdateNotificationName =
@@ -28,9 +29,9 @@ const char* const kOverlayStyleUpdateNotificationName =
 const char* const kOverlayStyleUpdateNotificationKey =
     "io.flutter.plugin.platform.SystemChromeOverlayNotificationKey";
 
-}  // namespace shell
+}  // namespace flutter
 
-using namespace shell;
+using namespace flutter;
 
 @implementation FlutterPlatformPlugin {
   fml::WeakPtr<FlutterEngine> _engine;
@@ -78,7 +79,8 @@ using namespace shell;
     [self setSystemChromeSystemUIOverlayStyle:args];
     result(nil);
   } else if ([method isEqualToString:@"SystemNavigator.pop"]) {
-    [self popSystemNavigator];
+    NSNumber* isAnimated = args;
+    [self popSystemNavigator:isAnimated.boolValue];
     result(nil);
   } else if ([method isEqualToString:@"Clipboard.getData"]) {
     result([self getClipboardData:args]);
@@ -93,9 +95,8 @@ using namespace shell;
 - (void)playSystemSound:(NSString*)soundType {
   if ([soundType isEqualToString:@"SystemSoundType.click"]) {
     // All feedback types are specific to Android and are treated as equal on
-    // iOS. The surface must (and does) adopt the UIInputViewAudioFeedback
-    // protocol
-    [[UIDevice currentDevice] playInputClick];
+    // iOS.
+    AudioServicesPlaySystemSound(kKeyPressClickSoundId);
   }
 }
 
@@ -194,7 +195,7 @@ using namespace shell;
   }
 }
 
-- (void)popSystemNavigator {
+- (void)popSystemNavigator:(BOOL)isAnimated {
   // Apple's human user guidelines say not to terminate iOS applications. However, if the
   // root view of the app is a navigation controller, it is instructed to back up a level
   // in the navigation hierarchy.
@@ -202,11 +203,11 @@ using namespace shell;
   // outside the context of a UINavigationController, and still wants to be popped.
   UIViewController* viewController = [UIApplication sharedApplication].keyWindow.rootViewController;
   if ([viewController isKindOfClass:[UINavigationController class]]) {
-    [((UINavigationController*)viewController) popViewControllerAnimated:NO];
+    [((UINavigationController*)viewController) popViewControllerAnimated:isAnimated];
   } else {
     auto engineViewController = static_cast<UIViewController*>([_engine.get() viewController]);
     if (engineViewController != viewController) {
-      [engineViewController dismissViewControllerAnimated:NO completion:nil];
+      [engineViewController dismissViewControllerAnimated:isAnimated completion:nil];
     }
   }
 }

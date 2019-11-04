@@ -19,13 +19,13 @@
 #include "third_party/skia/include/core/SkSurface.h"
 #include "third_party/tonic/dart_persistent_value.h"
 #include "third_party/tonic/logging/dart_invoke.h"
-#include "third_party/tonic/typed_data/uint8_list.h"
+#include "third_party/tonic/typed_data/typed_list.h"
 
 using tonic::DartInvoke;
 using tonic::DartPersistentValue;
 using tonic::ToDart;
 
-namespace blink {
+namespace flutter {
 namespace {
 
 // This must be kept in sync with the enum in painting.dart
@@ -211,24 +211,19 @@ Dart_Handle EncodeImage(CanvasImage* canvas_image,
       tonic::DartState::Current(), callback_handle);
 
   const auto& task_runners = UIDartState::Current()->GetTaskRunners();
-  auto context = UIDartState::Current()->GetResourceContext();
 
-  task_runners.GetIOTaskRunner()->PostTask(
-      fml::MakeCopyable([callback = std::move(callback),                   //
-                         image = canvas_image->image(),                    //
-                         context = std::move(context),                     //
-                         ui_task_runner = task_runners.GetUITaskRunner(),  //
-                         image_format                                      //
-  ]() mutable {
-        EncodeImageAndInvokeDataCallback(std::move(callback),        //
-                                         std::move(image),           //
-                                         context.get(),              //
-                                         std::move(ui_task_runner),  //
-                                         image_format                //
-        );
+  task_runners.GetIOTaskRunner()->PostTask(fml::MakeCopyable(
+      [callback = std::move(callback), image = canvas_image->image(),
+       io_manager = UIDartState::Current()->GetIOManager(),
+       ui_task_runner = task_runners.GetUITaskRunner(),
+       image_format]() mutable {
+        EncodeImageAndInvokeDataCallback(std::move(callback), std::move(image),
+                                         io_manager->GetResourceContext().get(),
+                                         std::move(ui_task_runner),
+                                         image_format);
       }));
 
   return Dart_Null();
 }
 
-}  // namespace blink
+}  // namespace flutter
