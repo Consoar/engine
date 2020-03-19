@@ -26,14 +26,14 @@ class DartServiceIsolate {
                       Dart_LibraryTagHandler embedder_tag_handler,
                       bool disable_origin_check,
                       bool disable_service_auth_codes,
+                      bool enable_service_port_fallback,
                       char** error);
 
   using CallbackHandle = ptrdiff_t;
 
   // Returns a handle for the callback that can be used in
   // RemoveServerStatusCallback
-  FML_WARN_UNUSED_RESULT
-  static CallbackHandle AddServerStatusCallback(
+  [[nodiscard]] static CallbackHandle AddServerStatusCallback(
       const ObservatoryServerStateCallback& callback);
 
   // Accepts the handle returned by AddServerStatusCallback

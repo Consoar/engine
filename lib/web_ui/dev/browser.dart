@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @dart = 2.6
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -12,7 +13,7 @@ import 'package:typed_data/typed_buffers.dart';
 
 import 'package:test_api/src/utils.dart';
 
-import 'common.dart'; // ignore: implementation_imports
+import 'common.dart'; // ignore: unused_import
 
 /// An interface for running browser instances.
 ///

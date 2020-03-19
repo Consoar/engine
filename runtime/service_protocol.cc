@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "flutter/fml/posix_wrappers.h"
 #include "flutter/fml/synchronization/waitable_event.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
@@ -123,7 +124,7 @@ bool ServiceProtocol::HandleMessage(const char* method,
   rapidjson::StringBuffer buffer;
   rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
   document.Accept(writer);
-  *json_object = strdup(buffer.GetString());
+  *json_object = fml::strdup(buffer.GetString());
 
 #ifndef NDEBUG
   FML_DLOG(INFO) << "Response: " << *json_object;
@@ -145,8 +146,7 @@ bool ServiceProtocol::HandleMessage(std::string_view method,
   return service_protocol->HandleMessage(method, params, response);
 }
 
-FML_WARN_UNUSED_RESULT
-static bool HandleMessageOnHandler(
+[[nodiscard]] static bool HandleMessageOnHandler(
     ServiceProtocol::Handler* handler,
     std::string_view method,
     const ServiceProtocol::Handler::ServiceProtocolMap& params,

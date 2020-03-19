@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @dart = 2.6
 part of engine;
 
 class DomRenderer {
@@ -61,6 +62,16 @@ class DomRenderer {
   /// transition appear smooth.
   static const String _staleHotRestartStore = '__flutter_state';
   List<html.Element> _staleHotRestartState;
+
+  /// Used to decide if the browser tab still has the focus.
+  ///
+  /// This information is useful for deciding on the blur behavior.
+  /// See [DefaultTextEditingStrategy].
+  ///
+  /// This getter calls the `hasFocus` method of the `Document` interface.
+  /// See for more details:
+  /// https://developer.mozilla.org/en-US/docs/Web/API/Document/hasFocus
+  bool get windowHasFocus => js_util.callMethod(html.document, 'hasFocus', []);
 
   void _setupHotRestart() {
     // This persists across hot restarts to clear stale DOM.
@@ -205,7 +216,7 @@ class DomRenderer {
         ..name = 'theme-color';
       html.document.head.append(theme);
     }
-    theme.content = color.toCssString();
+    theme.content = colorToCssString(color);
   }
 
   static const String defaultFontStyle = 'normal';
@@ -333,7 +344,7 @@ flt-glass-pane * {
     setElementStyle(bodyElement, 'touch-action', 'none');
 
     // These are intentionally outrageous font parameters to make sure that the
-    // apps fully specifies their text styles.
+    // apps fully specify their text styles.
     setElementStyle(bodyElement, 'font', defaultCssFont);
     setElementStyle(bodyElement, 'color', 'red');
 
@@ -401,7 +412,7 @@ flt-glass-pane * {
     glassPaneElement
         .insertBefore(_accesibilityPlaceholder, _sceneHostElement);
 
-    PointerBinding(this);
+    PointerBinding.initInstance(_glassPaneElement);
 
     // Hide the DOM nodes used to render the scene from accessibility, because
     // the accessibility tree is built from the SemanticsNode tree as a parallel
@@ -461,6 +472,7 @@ flt-glass-pane * {
 
   /// Called immediately after browser window metrics change.
   void _metricsDidChange(html.Event event) {
+    window._computePhysicalSize();
     if (ui.window.onMetricsChanged != null) {
       ui.window.onMetricsChanged();
     }
@@ -474,6 +486,26 @@ flt-glass-pane * {
   void clearDom(html.Node node) {
     while (node.lastChild != null) {
       node.lastChild.remove();
+    }
+  }
+
+  static bool _ellipseFeatureDetected;
+
+  /// Draws CanvasElement ellipse with fallback.
+  static void ellipse(html.CanvasRenderingContext2D context,
+      double centerX, double centerY, double radiusX, double radiusY,
+      double rotation, double startAngle, double endAngle, bool antiClockwise) {
+    _ellipseFeatureDetected ??= js_util.getProperty(context, 'ellipse') != null;
+    if (_ellipseFeatureDetected) {
+      context.ellipse(centerX, centerY, radiusX, radiusY,
+          rotation, startAngle, endAngle, antiClockwise);
+    } else {
+      context.save();
+      context.translate(centerX, centerY);
+      context.rotate(rotation);
+      context.scale(radiusX, radiusY);
+      context.arc(0, 0, 1, startAngle, endAngle, antiClockwise);
+      context.restore();
     }
   }
 

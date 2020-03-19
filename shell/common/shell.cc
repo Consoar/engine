@@ -42,6 +42,7 @@ constexpr char kFontChange[] = "fontsChange";
 std::unique_ptr<Shell> Shell::CreateShellOnPlatformThread(
     DartVMRef vm,
     TaskRunners task_runners,
+    const WindowData window_data,
     Settings settings,
     fml::RefPtr<const DartSnapshot> isolate_snapshot,
     const Shell::CreateCallback<PlatformView>& on_create_platform_view,
@@ -132,6 +133,7 @@ std::unique_ptr<Shell> Shell::CreateShellOnPlatformThread(
       fml::MakeCopyable([&engine_promise,                                 //
                          shell = shell.get(),                             //
                          &dispatcher_maker,                               //
+                         &window_data,                                    //
                          isolate_snapshot = std::move(isolate_snapshot),  //
                          vsync_waiter = std::move(vsync_waiter),          //
                          &weak_io_manager_future,                         //
@@ -152,6 +154,7 @@ std::unique_ptr<Shell> Shell::CreateShellOnPlatformThread(
             *shell->GetDartVM(),            //
             std::move(isolate_snapshot),    //
             task_runners,                   //
+            window_data,                    //
             shell->GetSettings(),           //
             std::move(animator),            //
             weak_io_manager_future.get(),   //
@@ -174,6 +177,16 @@ std::unique_ptr<Shell> Shell::CreateShellOnPlatformThread(
 static void RecordStartupTimestamp() {
   if (engine_main_enter_ts == 0) {
     engine_main_enter_ts = Dart_TimelineGetMicros();
+  }
+}
+
+static void Tokenize(const std::string& input,
+                     std::vector<std::string>* results,
+                     char delimiter) {
+  std::istringstream ss(input);
+  std::string token;
+  while (std::getline(ss, token, delimiter)) {
+    results->push_back(token);
   }
 }
 
@@ -202,6 +215,12 @@ static void PerformInitializationTasks(const Settings& settings) {
       InitSkiaEventTracer(settings.trace_skia);
     }
 
+    if (!settings.trace_whitelist.empty()) {
+      std::vector<std::string> prefixes;
+      Tokenize(settings.trace_whitelist, &prefixes, ',');
+      fml::tracing::TraceSetWhitelist(prefixes);
+    }
+
     if (!settings.skia_deterministic_rendering_on_cpu) {
       SkGraphics::Init();
     } else {
@@ -225,6 +244,20 @@ std::unique_ptr<Shell> Shell::Create(
     Settings settings,
     const Shell::CreateCallback<PlatformView>& on_create_platform_view,
     const Shell::CreateCallback<Rasterizer>& on_create_rasterizer) {
+  return Shell::Create(std::move(task_runners),                //
+                       WindowData{/* default window data */},  //
+                       std::move(settings),                    //
+                       std::move(on_create_platform_view),     //
+                       std::move(on_create_rasterizer)         //
+  );
+}
+
+std::unique_ptr<Shell> Shell::Create(
+    TaskRunners task_runners,
+    const WindowData window_data,
+    Settings settings,
+    Shell::CreateCallback<PlatformView> on_create_platform_view,
+    Shell::CreateCallback<Rasterizer> on_create_rasterizer) {
   PerformInitializationTasks(settings);
   PersistentCache::SetCacheSkSL(settings.cache_sksl);
 
@@ -236,6 +269,7 @@ std::unique_ptr<Shell> Shell::Create(
   auto vm_data = vm->GetVMData();
 
   return Shell::Create(std::move(task_runners),        //
+                       std::move(window_data),         //
                        std::move(settings),            //
                        vm_data->GetIsolateSnapshot(),  // isolate snapshot
                        on_create_platform_view,        //
@@ -246,6 +280,7 @@ std::unique_ptr<Shell> Shell::Create(
 
 std::unique_ptr<Shell> Shell::Create(
     TaskRunners task_runners,
+    const WindowData window_data,
     Settings settings,
     fml::RefPtr<const DartSnapshot> isolate_snapshot,
     const Shell::CreateCallback<PlatformView>& on_create_platform_view,
@@ -269,6 +304,7 @@ std::unique_ptr<Shell> Shell::Create(
                          vm = std::move(vm),                              //
                          &shell,                                          //
                          task_runners = std::move(task_runners),          //
+                         window_data,                                     //
                          settings,                                        //
                          isolate_snapshot = std::move(isolate_snapshot),  //
                          on_create_platform_view,                         //
@@ -276,6 +312,7 @@ std::unique_ptr<Shell> Shell::Create(
   ]() mutable {
         shell = CreateShellOnPlatformThread(std::move(vm),
                                             std::move(task_runners),      //
+                                            window_data,                  //
                                             settings,                     //
                                             std::move(isolate_snapshot),  //
                                             on_create_platform_view,      //
@@ -393,6 +430,12 @@ Shell::~Shell() {
 }
 
 void Shell::NotifyLowMemoryWarning() const {
+  // This does not require a current isolate but does require a running VM.
+  // Since a valid shell will not be returned to the embedder without a valid
+  // DartVMRef, we can be certain that this is a safe spot to assume a VM is
+  // running.
+  ::Dart_NotifyLowMemory();
+
   task_runners_.GetGPUTaskRunner()->PostTask(
       [rasterizer = rasterizer_->GetWeakPtr()]() {
         if (rasterizer) {
@@ -1224,16 +1267,6 @@ bool Shell::OnServiceProtocolRunInView(
     return false;
   }
 
-  // TODO(chinmaygarde): In case of hot-reload from .dill files, the packages
-  // file is ignored. Currently, the tool is passing a junk packages file to
-  // pass this check. Update the service protocol interface and remove this
-  // workaround.
-  if (params.count("packagesFile") == 0) {
-    ServiceProtocolParameterError(response,
-                                  "'packagesFile' parameter is missing.");
-    return false;
-  }
-
   if (params.count("assetDirectory") == 0) {
     ServiceProtocolParameterError(response,
                                   "'assetDirectory' parameter is missing.");
@@ -1242,8 +1275,6 @@ bool Shell::OnServiceProtocolRunInView(
 
   std::string main_script_path =
       fml::paths::FromURI(params.at("mainScript").data());
-  std::string packages_path =
-      fml::paths::FromURI(params.at("packagesFile").data());
   std::string asset_directory_path =
       fml::paths::FromURI(params.at("assetDirectory").data());
 
