@@ -12,7 +12,7 @@ import 'package:web_engine_tester/golden_tester.dart';
 
 import 'scuba.dart';
 
-const Color _kShadowColor = Color.fromARGB(255, 0, 0, 0);
+const Color _kShadowColor = Color.fromARGB(255, 255, 0, 0);
 
 void main() async {
   final Rect region = Rect.fromLTWH(0, 0, 550, 300);
@@ -69,7 +69,7 @@ void main() async {
     builder.pop(); // offset
   }
 
-  void _paintBitmapCanvasShadow(double elevation, Offset offset, bool transparentOccluder) {
+  void _paintBitmapCanvasShadow(double elevation, Offset offset) {
     final SurfacePath path = SurfacePath()
       ..addRect(const Rect.fromLTRB(0, 0, 20, 20));
     builder.pushOffset(offset.dx, offset.dy);
@@ -82,7 +82,7 @@ void main() async {
       path,
       _kShadowColor,
       elevation,
-      transparentOccluder,
+      false,
     );
     builder.addPicture(Offset.zero, recorder.endRecording());
     _paintShapeOutline();
@@ -136,16 +136,12 @@ void main() async {
       }
 
       for (int i = 0; i < 10; i++) {
-        _paintBitmapCanvasShadow(i.toDouble(), Offset(50.0 * i, 60), false);
-      }
-
-      for (int i = 0; i < 10; i++) {
-        _paintBitmapCanvasShadow(i.toDouble(), Offset(50.0 * i, 120), true);
+        _paintBitmapCanvasShadow(i.toDouble(), Offset(50.0 * i, 60));
       }
 
       for (int i = 0; i < 10; i++) {
         _paintBitmapCanvasComplexPathShadow(
-            i.toDouble(), Offset(50.0 * i, 180));
+            i.toDouble(), Offset(50.0 * i, 120));
       }
 
       builder.pop();

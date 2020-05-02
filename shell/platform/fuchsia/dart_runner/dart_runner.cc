@@ -127,7 +127,7 @@ bool EntropySource(uint8_t* buffer, intptr_t count) {
 
 }  // namespace
 
-DartRunner::DartRunner(sys::ComponentContext* context) : context_(context) {
+DartRunner::DartRunner() : context_(sys::ComponentContext::Create()) {
   context_->outgoing()->AddPublicService<fuchsia::sys::Runner>(
       [this](fidl::InterfaceRequest<fuchsia::sys::Runner> request) {
         bindings_.AddBinding(this, std::move(request));
@@ -158,11 +158,11 @@ DartRunner::DartRunner(sys::ComponentContext* context) : context_(context) {
   params.vm_snapshot_instructions = ::_kDartVmSnapshotInstructions;
 #else
   if (!dart_utils::MappedResource::LoadFromNamespace(
-          nullptr, "/pkg/data/vm_snapshot_data.bin", vm_snapshot_data_)) {
+          nullptr, "pkg/data/vm_snapshot_data.bin", vm_snapshot_data_)) {
     FX_LOG(FATAL, LOG_TAG, "Failed to load vm snapshot data");
   }
   if (!dart_utils::MappedResource::LoadFromNamespace(
-          nullptr, "/pkg/data/vm_snapshot_instructions.bin",
+          nullptr, "pkg/data/vm_snapshot_instructions.bin",
           vm_snapshot_instructions_, true /* executable */)) {
     FX_LOG(FATAL, LOG_TAG, "Failed to load vm snapshot instructions");
   }

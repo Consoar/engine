@@ -10,16 +10,10 @@ import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as path;
 
 import 'environment.dart';
-import 'utils.dart';
 
-class CleanCommand extends Command<bool> with ArgUtils {
+class CleanCommand extends Command<bool> {
   CleanCommand() {
     argParser
-      ..addFlag(
-        'flutter',
-        defaultsTo: true,
-        help: 'Cleans up the .dart_tool directory under engine/src/flutter.',
-      )
       ..addFlag(
         'ninja',
         defaultsTo: false,
@@ -30,9 +24,7 @@ class CleanCommand extends Command<bool> with ArgUtils {
   @override
   String get name => 'clean';
 
-  bool get _alsoCleanNinja => boolArg('ninja');
-
-  bool get _alsoCleanFlutterRepo => boolArg('flutter');
+  bool get _alsoCleanNinja => argResults['ninja'];
 
   @override
   String get description => 'Deletes build caches and artifacts.';
@@ -55,8 +47,6 @@ class CleanCommand extends Command<bool> with ArgUtils {
       ...fontFiles,
       if (_alsoCleanNinja)
         environment.outDir,
-      if(_alsoCleanFlutterRepo)
-        environment.engineDartToolDir,
     ];
 
     await Future.wait(

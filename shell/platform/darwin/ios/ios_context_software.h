@@ -29,11 +29,6 @@ class IOSContextSoftware final : public IOSContext {
   // |IOSContext|
   bool ClearCurrent() override;
 
-  // |IOSContext|
-  std::unique_ptr<Texture> CreateExternalTexture(
-      int64_t texture_id,
-      fml::scoped_nsobject<NSObject<FlutterTexture>> texture) override;
-
  private:
   FML_DISALLOW_COPY_AND_ASSIGN(IOSContextSoftware);
 };

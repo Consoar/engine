@@ -27,18 +27,70 @@ static constexpr int kMicrosecondsPerSecond = 1000 * 1000;
 static constexpr CGFloat kScrollViewContentSize = 2.0;
 
 NSNotificationName const FlutterSemanticsUpdateNotification = @"FlutterSemanticsUpdate";
+
 NSNotificationName const FlutterViewControllerWillDealloc = @"FlutterViewControllerWillDealloc";
-NSNotificationName const FlutterViewControllerHideHomeIndicator =
-    @"FlutterViewControllerHideHomeIndicator";
-NSNotificationName const FlutterViewControllerShowHomeIndicator =
-    @"FlutterViewControllerShowHomeIndicator";
+
+/// Class to coalesce calls for a period of time.
+///
+/// This is used to filter out the conflicting notifications that can get sent
+/// in rapid succession when the app gets foregrounded.
+@interface FlutterCoalescer : NSObject
+@property(nonatomic, assign) BOOL isTriggered;
+@property(nonatomic, assign) BOOL isCoalescing;
+@property(nonatomic, copy) dispatch_block_t block;
+@end
+
+@implementation FlutterCoalescer
+- (instancetype)initWithBlock:(dispatch_block_t)block {
+  self = [super init];
+  if (self) {
+    self.block = block;
+  }
+  return self;
+}
+
+- (void)dealloc {
+  [_block release];
+  [super dealloc];
+}
+
+- (void)trigger {
+  if (_isCoalescing) {
+    _isTriggered = YES;
+  } else {
+    _isTriggered = NO;
+    if (_block) {
+      _block();
+    }
+  }
+}
+
+- (void)coalesceForSeconds:(double)seconds {
+  if (self.isCoalescing || !self.block) {
+    return;
+  }
+  self.isCoalescing = YES;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, seconds * NSEC_PER_SEC),
+                 dispatch_get_main_queue(), ^{
+                   if (self.isTriggered && self.block) {
+                     self.block();
+                   }
+                   self.isTriggered = NO;
+                   self.isCoalescing = NO;
+                 });
+}
+
+- (void)invalidate {
+  self.block = nil;
+}
+
+@end  // FlutterCoalescer
 
 // This is left a FlutterBinaryMessenger privately for now to give people a chance to notice the
 // change. Unfortunately unless you have Werror turned on, incompatible pointers as arguments are
 // just a warning.
 @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegate>
 @property(nonatomic, readwrite, getter=isDisplayingFlutterUI) BOOL displayingFlutterUI;
-@property(nonatomic, assign) BOOL isHomeIndicatorHidden;
 @end
 
 // The following conditional compilation defines an API 13 concept on earlier API targets so that
@@ -71,6 +123,9 @@ typedef enum UIAccessibilityContrast : NSInteger {
   BOOL _viewOpaque;
   BOOL _engineNeedsLaunch;
   NSMutableSet<NSNumber*>* _ongoingTouches;
+  // Coalescer that filters out superfluous keyboard notifications when the app
+  // is being foregrounded.
+  fml::scoped_nsobject<FlutterCoalescer> _updateViewportMetrics;
   // This scroll view is a workaround to accomodate iOS 13 and higher.  There isn't a way to get
   // touches on the status bar to trigger scrolling to the top of a scroll view.  We place a
   // UIScrollView with height zero and a content offset so we can get those events. See also:
@@ -89,14 +144,6 @@ typedef enum UIAccessibilityContrast : NSInteger {
   self = [super initWithNibName:nibName bundle:nibBundle];
   if (self) {
     _viewOpaque = YES;
-    if (engine.viewController) {
-      FML_LOG(ERROR) << "The supplied FlutterEngine " << [[engine description] UTF8String]
-                     << " is already used with FlutterViewController instance "
-                     << [[engine.viewController description] UTF8String]
-                     << ". One instance of the FlutterEngine can only be attached to one "
-                        "FlutterViewController at a time. Set FlutterEngine.viewController "
-                        "to nil before attaching it to another FlutterViewController.";
-    }
     _engine.reset([engine retain]);
     _engineNeedsLaunch = NO;
     _flutterView.reset([[FlutterView alloc] initWithDelegate:_engine opaque:self.isViewOpaque]);
@@ -167,6 +214,11 @@ typedef enum UIAccessibilityContrast : NSInteger {
   _statusBarStyle = UIStatusBarStyleDefault;
 
   [self setupNotificationCenterObservers];
+
+  __block FlutterViewController* blockSelf = self;
+  _updateViewportMetrics.reset([[FlutterCoalescer alloc] initWithBlock:^{
+    [blockSelf updateViewportMetricsImplementation];
+  }]);
 }
 
 - (FlutterEngine*)engine {
@@ -220,6 +272,11 @@ typedef enum UIAccessibilityContrast : NSInteger {
                object:nil];
 
   [center addObserver:self
+             selector:@selector(onLocaleUpdated:)
+                 name:NSCurrentLocaleDidChangeNotification
+               object:nil];
+
+  [center addObserver:self
              selector:@selector(onAccessibilityStatusChanged:)
                  name:UIAccessibilityVoiceOverStatusChanged
                object:nil];
@@ -257,16 +314,6 @@ typedef enum UIAccessibilityContrast : NSInteger {
   [center addObserver:self
              selector:@selector(onUserSettingsChanged:)
                  name:UIContentSizeCategoryDidChangeNotification
-               object:nil];
-
-  [center addObserver:self
-             selector:@selector(onHideHomeIndicatorNotification:)
-                 name:FlutterViewControllerHideHomeIndicator
-               object:nil];
-
-  [center addObserver:self
-             selector:@selector(onShowHomeIndicatorNotification:)
-                 name:FlutterViewControllerShowHomeIndicator
                object:nil];
 }
 
@@ -396,9 +443,9 @@ static void sendFakeTouchEvent(FlutterEngine* engine,
   // Start on the platform thread.
   weakPlatformView->SetNextFrameCallback([weakSelf = [self getWeakPtr],
                                           platformTaskRunner = [_engine.get() platformTaskRunner],
-                                          RasterTaskRunner = [_engine.get() RasterTaskRunner]]() {
-    FML_DCHECK(RasterTaskRunner->RunsTasksOnCurrentThread());
-    // Get callback on raster thread and jump back to platform thread.
+                                          gpuTaskRunner = [_engine.get() GPUTaskRunner]]() {
+    FML_DCHECK(gpuTaskRunner->RunsTasksOnCurrentThread());
+    // Get callback on GPU thread and jump back to platform thread.
     platformTaskRunner->PostTask([weakSelf]() {
       fml::scoped_nsobject<FlutterViewController> flutterViewController(
           [(FlutterViewController*)weakSelf.get() retain]);
@@ -489,18 +536,17 @@ static void sendFakeTouchEvent(FlutterEngine* engine,
 #pragma mark - Surface creation and teardown updates
 
 - (void)surfaceUpdated:(BOOL)appeared {
-  // NotifyCreated/NotifyDestroyed are synchronous and require hops between the UI and raster
-  // thread.
+  // NotifyCreated/NotifyDestroyed are synchronous and require hops between the UI and GPU thread.
   if (appeared) {
     [self installFirstFrameCallback];
-    [_engine.get() platformViewsController]->SetFlutterView(_flutterView.get());
-    [_engine.get() platformViewsController]->SetFlutterViewController(self);
-    [_engine.get() platformView]->NotifyCreated();
+    [_engine.get() platformViewsController] -> SetFlutterView(_flutterView.get());
+    [_engine.get() platformViewsController] -> SetFlutterViewController(self);
+    [_engine.get() platformView] -> NotifyCreated();
   } else {
     self.displayingFlutterUI = NO;
-    [_engine.get() platformView]->NotifyDestroyed();
-    [_engine.get() platformViewsController]->SetFlutterView(nullptr);
-    [_engine.get() platformViewsController]->SetFlutterViewController(nullptr);
+    [_engine.get() platformView] -> NotifyDestroyed();
+    [_engine.get() platformViewsController] -> SetFlutterView(nullptr);
+    [_engine.get() platformViewsController] -> SetFlutterViewController(nullptr);
   }
 }
 
@@ -540,6 +586,7 @@ static void sendFakeTouchEvent(FlutterEngine* engine,
 
 - (void)viewDidAppear:(BOOL)animated {
   TRACE_EVENT0("flutter", "viewDidAppear");
+  [self onLocaleUpdated:nil];
   [self onUserSettingsChanged:nil];
   [self onAccessibilityStatusChanged:nil];
   [[_engine.get() lifecycleChannel] sendMessage:@"AppLifecycleState.resumed"];
@@ -604,6 +651,7 @@ static void sendFakeTouchEvent(FlutterEngine* engine,
                                                     userInfo:nil];
   [[NSNotificationCenter defaultCenter] removeObserver:self];
   [_ongoingTouches release];
+  [_updateViewportMetrics invalidate];
   [super dealloc];
 }
 
@@ -630,6 +678,7 @@ static void sendFakeTouchEvent(FlutterEngine* engine,
 - (void)applicationWillEnterForeground:(NSNotification*)notification {
   TRACE_EVENT0("flutter", "applicationWillEnterForeground");
   [self goToApplicationLifecycle:@"AppLifecycleState.inactive"];
+  [_updateViewportMetrics coalesceForSeconds:0.5];
 }
 
 // Make this transition only while this current view controller is visible.
@@ -656,10 +705,6 @@ static flutter::PointerData::Change PointerDataChangeFromUITouchPhase(UITouchPha
       return flutter::PointerData::Change::kUp;
     case UITouchPhaseCancelled:
       return flutter::PointerData::Change::kCancel;
-    default:
-      // TODO(53695): Handle the `UITouchPhaseRegion`... enum values.
-      FML_DLOG(INFO) << "Unhandled touch phase: " << phase;
-      break;
   }
 
   return flutter::PointerData::Change::kCancel;
@@ -673,11 +718,9 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
         return flutter::PointerData::DeviceKind::kTouch;
       case UITouchTypeStylus:
         return flutter::PointerData::DeviceKind::kStylus;
-      default:
-        // TODO(53696): Handle the UITouchTypeIndirectPointer enum value.
-        FML_DLOG(INFO) << "Unhandled touch type: " << touch.type;
-        break;
     }
+  } else {
+    return flutter::PointerData::DeviceKind::kTouch;
   }
 
   return flutter::PointerData::DeviceKind::kTouch;
@@ -820,6 +863,13 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
 #pragma mark - Handle view resizing
 
 - (void)updateViewportMetrics {
+  [_updateViewportMetrics trigger];
+}
+
+/// The direct implementation of updateViewportMetrics, it doesn't conform to
+/// the coalescing logic when foregrounding the app.  Most calls should be
+/// directed to [updateViewportMetrics].
+- (void)updateViewportMetricsImplementation {
   [_engine.get() updateViewportMetrics:_viewportMetrics];
 }
 
@@ -847,7 +897,7 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
   _viewportMetrics.physical_height = viewSize.height * scale;
 
   [self updateViewportPadding];
-  [self updateViewportMetrics];
+  [self updateViewportMetricsImplementation];
 
   // This must run after updateViewportMetrics so that the surface creation tasks are queued after
   // the viewport metrics update tasks.
@@ -894,32 +944,13 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
 
 - (void)keyboardWillChangeFrame:(NSNotification*)notification {
   NSDictionary* info = [notification userInfo];
+  CGFloat bottom = CGRectGetHeight([[info objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue]);
+  CGFloat scale = [UIScreen mainScreen].scale;
 
-  if (@available(iOS 9, *)) {
-    // Ignore keyboard notifications related to other apps.
-    id isLocal = info[UIKeyboardIsLocalUserInfoKey];
-    if (isLocal && ![isLocal boolValue]) {
-      return;
-    }
-  }
-
-  CGRect keyboardFrame = [[info objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue];
-  CGRect screenRect = [[UIScreen mainScreen] bounds];
-
-  // Considering the iPad's split keyboard, Flutter needs to check if the keyboard frame is present
-  // in the screen to see if the keyboard is visible.
-  if (CGRectIntersectsRect(keyboardFrame, screenRect)) {
-    CGFloat bottom = CGRectGetHeight(keyboardFrame);
-    CGFloat scale = [UIScreen mainScreen].scale;
-
-    // The keyboard is treated as an inset since we want to effectively reduce the window size by
-    // the keyboard height. The Dart side will compute a value accounting for the keyboard-consuming
-    // bottom padding.
-    _viewportMetrics.physical_view_inset_bottom = bottom * scale;
-  } else {
-    _viewportMetrics.physical_view_inset_bottom = 0;
-  }
-
+  // The keyboard is treated as an inset since we want to effectively reduce the window size by the
+  // keyboard height. The Dart side will compute a value accounting for the keyboard-consuming
+  // bottom padding.
+  _viewportMetrics.physical_view_inset_bottom = bottom * scale;
   [self updateViewportMetrics];
 }
 
@@ -972,27 +1003,6 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
   }
 }
 
-- (void)onHideHomeIndicatorNotification:(NSNotification*)notification {
-  self.isHomeIndicatorHidden = YES;
-}
-
-- (void)onShowHomeIndicatorNotification:(NSNotification*)notification {
-  self.isHomeIndicatorHidden = NO;
-}
-
-- (void)setIsHomeIndicatorHidden:(BOOL)hideHomeIndicator {
-  if (hideHomeIndicator != _isHomeIndicatorHidden) {
-    _isHomeIndicatorHidden = hideHomeIndicator;
-    if (@available(iOS 11, *)) {
-      [self setNeedsUpdateOfHomeIndicatorAutoHidden];
-    }
-  }
-}
-
-- (BOOL)prefersHomeIndicatorAutoHidden {
-  return self.isHomeIndicatorHidden;
-}
-
 - (BOOL)shouldAutorotate {
   return YES;
 }
@@ -1027,6 +1037,48 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
   platformView->SetSemanticsEnabled(enabled || UIAccessibilityIsSpeakScreenEnabled());
   platformView->SetAccessibilityFeatures(flags);
 #endif
+}
+
+#pragma mark - Locale updates
+
+- (void)onLocaleUpdated:(NSNotification*)notification {
+  NSArray<NSString*>* preferredLocales = [NSLocale preferredLanguages];
+  NSMutableArray<NSString*>* data = [[NSMutableArray new] autorelease];
+
+  // Force prepend the [NSLocale currentLocale] to the front of the list
+  // to ensure we are including the full default locale. preferredLocales
+  // is not guaranteed to include anything beyond the languageCode.
+  NSLocale* currentLocale = [NSLocale currentLocale];
+  NSString* languageCode = [currentLocale objectForKey:NSLocaleLanguageCode];
+  NSString* countryCode = [currentLocale objectForKey:NSLocaleCountryCode];
+  NSString* scriptCode = [currentLocale objectForKey:NSLocaleScriptCode];
+  NSString* variantCode = [currentLocale objectForKey:NSLocaleVariantCode];
+  if (languageCode) {
+    [data addObject:languageCode];
+    [data addObject:(countryCode ? countryCode : @"")];
+    [data addObject:(scriptCode ? scriptCode : @"")];
+    [data addObject:(variantCode ? variantCode : @"")];
+  }
+
+  // Add any secondary locales/languages to the list.
+  for (NSString* localeID in preferredLocales) {
+    NSLocale* currentLocale = [[[NSLocale alloc] initWithLocaleIdentifier:localeID] autorelease];
+    NSString* languageCode = [currentLocale objectForKey:NSLocaleLanguageCode];
+    NSString* countryCode = [currentLocale objectForKey:NSLocaleCountryCode];
+    NSString* scriptCode = [currentLocale objectForKey:NSLocaleScriptCode];
+    NSString* variantCode = [currentLocale objectForKey:NSLocaleVariantCode];
+    if (!languageCode) {
+      continue;
+    }
+    [data addObject:languageCode];
+    [data addObject:(countryCode ? countryCode : @"")];
+    [data addObject:(scriptCode ? scriptCode : @"")];
+    [data addObject:(variantCode ? variantCode : @"")];
+  }
+  if (data.count == 0) {
+    return;
+  }
+  [[_engine.get() localizationChannel] invokeMethod:@"setLocale" arguments:data];
 }
 
 #pragma mark - Set user settings

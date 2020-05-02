@@ -35,7 +35,6 @@
 #include "runtime/dart/utils/tempfs.h"
 #include "runtime/dart/utils/vmo.h"
 
-#include "flutter_runner_product_configuration.h"
 #include "task_observers.h"
 #include "task_runner_adapter.h"
 #include "thread.h"
@@ -315,13 +314,6 @@ Application::Application(
     }
   }
 
-  // Load and use product-specific configuration, if it exists.
-  std::string json_string;
-  if (dart_utils::ReadFileToString(
-          "/config/data/frame_scheduling_performance_values", &json_string)) {
-    product_config_ = FlutterRunnerProductConfiguration(json_string);
-  }
-
 #if defined(DART_PRODUCT)
   settings_.enable_observatory = false;
 #else
@@ -439,8 +431,7 @@ class FileInNamespaceBuffer final : public fml::Mapping {
   FileInNamespaceBuffer(int namespace_fd, const char* path, bool executable)
       : address_(nullptr), size_(0) {
     fuchsia::mem::Buffer buffer;
-    if (!dart_utils::VmoFromFilenameAt(namespace_fd, path, executable,
-                                       &buffer)) {
+    if (!dart_utils::VmoFromFilenameAt(namespace_fd, path, &buffer)) {
       return;
     }
     if (buffer.size == 0) {
@@ -450,6 +441,17 @@ class FileInNamespaceBuffer final : public fml::Mapping {
     uint32_t flags = ZX_VM_PERM_READ;
     if (executable) {
       flags |= ZX_VM_PERM_EXECUTE;
+
+      // VmoFromFilenameAt will return VMOs without ZX_RIGHT_EXECUTE,
+      // so we need replace_as_executable to be able to map them as
+      // ZX_VM_PERM_EXECUTE.
+      // TODO(mdempsky): Update comment once SEC-42 is fixed.
+      zx_status_t status =
+          buffer.vmo.replace_as_executable(zx::handle(), &buffer.vmo);
+      if (status != ZX_OK) {
+        FML_LOG(FATAL) << "Failed to make VMO executable: "
+                       << zx_status_get_string(status);
+      }
     }
     uintptr_t addr;
     zx_status_t status =
@@ -617,8 +619,7 @@ void Application::CreateView(
       std::move(isolate_snapshot_),  // isolate snapshot
       scenic::ToViewToken(std::move(view_token)),  // view token
       std::move(fdio_ns_),                         // FDIO namespace
-      std::move(directory_request_),               // outgoing request
-      product_config_                              // product configuration
+      std::move(directory_request_)                // outgoing request
       ));
 }
 

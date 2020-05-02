@@ -56,12 +56,8 @@ void TransformLayer::UpdateScene(SceneUpdateContext& context) {
   TRACE_EVENT0("flutter", "TransformLayer::UpdateScene");
   FML_DCHECK(needs_system_composite());
 
-  if (!transform_.isIdentity()) {
-    SceneUpdateContext::Transform transform(context, transform_);
-    UpdateSceneChildren(context);
-  } else {
-    UpdateSceneChildren(context);
-  }
+  SceneUpdateContext::Transform transform(context, transform_);
+  UpdateSceneChildren(context);
 }
 
 #endif  // defined(OS_FUCHSIA)

@@ -25,7 +25,7 @@ FLUTTER_EXPORT
 /**
  * Called when the texture is unregistered.
  *
- * Called on the raster thread.
+ * Called on the GPU thread.
  */
 @optional
 - (void)onTextureUnregistered:(NSObject<FlutterTexture>*)texture;
@@ -45,7 +45,7 @@ FLUTTER_EXPORT
 /**
  * Notifies Flutter that the content of the previously registered texture has been updated.
  *
- * This will trigger a call to `-[FlutterTexture copyPixelBuffer]` on the raster thread.
+ * This will trigger a call to `-[FlutterTexture copyPixelBuffer]` on the GPU thread.
  */
 - (void)textureFrameAvailable:(int64_t)textureId;
 /**

@@ -25,8 +25,7 @@ Animator::Animator(Delegate& delegate,
     : delegate_(delegate),
       task_runners_(std::move(task_runners)),
       waiter_(std::move(waiter)),
-      last_frame_begin_time_(),
-      last_frame_target_time_(),
+      last_begin_frame_time_(),
       dart_frame_deadline_(0),
 #if FLUTTER_SHELL_ENABLE_METAL
       layer_tree_pipeline_(fml::MakeRefCounted<LayerTreePipeline>(2)),
@@ -36,7 +35,7 @@ Animator::Animator(Delegate& delegate,
       // https://github.com/flutter/engine/pull/9132 for discussion.
       layer_tree_pipeline_(fml::MakeRefCounted<LayerTreePipeline>(
           task_runners.GetPlatformTaskRunner() ==
-                  task_runners.GetRasterTaskRunner()
+                  task_runners.GetGPUTaskRunner()
               ? 1
               : 2)),
 #endif  // FLUTTER_SHELL_ENABLE_METAL
@@ -133,8 +132,7 @@ void Animator::BeginFrame(fml::TimePoint frame_start_time,
   // to service potential frame.
   FML_DCHECK(producer_continuation_);
 
-  last_frame_begin_time_ = frame_start_time;
-  last_frame_target_time_ = frame_target_time;
+  last_begin_frame_time_ = frame_start_time;
   dart_frame_deadline_ = FxlToDartOrEarlier(frame_target_time);
   {
     TRACE_EVENT2("flutter", "Framework Workload", "mode", "basic", "frame",
@@ -180,15 +178,11 @@ void Animator::Render(std::unique_ptr<flutter::LayerTree> layer_tree) {
 
   if (layer_tree) {
     // Note the frame time for instrumentation.
-    layer_tree->RecordBuildTime(last_frame_begin_time_,
-                                last_frame_target_time_);
+    layer_tree->RecordBuildTime(last_begin_frame_time_);
   }
 
   // Commit the pending continuation.
-  bool result = producer_continuation_.Complete(std::move(layer_tree));
-  if (!result) {
-    FML_DLOG(INFO) << "No pending continuation to commit";
-  }
+  producer_continuation_.Complete(std::move(layer_tree));
 
   delegate_.OnAnimatorDraw(layer_tree_pipeline_);
 }

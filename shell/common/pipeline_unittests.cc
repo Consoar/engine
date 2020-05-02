@@ -23,8 +23,7 @@ TEST(PipelineTest, ConsumeOneVal) {
   Continuation continuation = pipeline->Produce();
 
   const int test_val = 1;
-  bool result = continuation.Complete(std::make_unique<int>(test_val));
-  ASSERT_EQ(result, true);
+  continuation.Complete(std::make_unique<int>(test_val));
 
   PipelineConsumeResult consume_result = pipeline->Consume(
       [&test_val](std::unique_ptr<int> v) { ASSERT_EQ(*v, test_val); });
@@ -38,21 +37,18 @@ TEST(PipelineTest, ContinuationCanOnlyBeUsedOnce) {
   Continuation continuation = pipeline->Produce();
 
   const int test_val = 1;
-  bool result = continuation.Complete(std::make_unique<int>(test_val));
-  ASSERT_EQ(result, true);
+  continuation.Complete(std::make_unique<int>(test_val));
 
   PipelineConsumeResult consume_result_1 = pipeline->Consume(
       [&test_val](std::unique_ptr<int> v) { ASSERT_EQ(*v, test_val); });
 
-  result = continuation.Complete(std::make_unique<int>(test_val));
-  ASSERT_EQ(result, false);
+  continuation.Complete(std::make_unique<int>(test_val));
   ASSERT_EQ(consume_result_1, PipelineConsumeResult::Done);
 
   PipelineConsumeResult consume_result_2 =
       pipeline->Consume([](std::unique_ptr<int> v) { FAIL(); });
 
-  result = continuation.Complete(std::make_unique<int>(test_val));
-  ASSERT_EQ(result, false);
+  continuation.Complete(std::make_unique<int>(test_val));
   ASSERT_EQ(consume_result_2, PipelineConsumeResult::NoneAvailable);
 }
 
@@ -64,10 +60,8 @@ TEST(PipelineTest, PushingMoreThanDepthCompletesFirstSubmission) {
   Continuation continuation_2 = pipeline->Produce();
 
   const int test_val_1 = 1, test_val_2 = 2;
-  bool result = continuation_1.Complete(std::make_unique<int>(test_val_1));
-  ASSERT_EQ(result, true);
-  result = continuation_2.Complete(std::make_unique<int>(test_val_2));
-  ASSERT_EQ(result, false);
+  continuation_1.Complete(std::make_unique<int>(test_val_1));
+  continuation_2.Complete(std::make_unique<int>(test_val_2));
 
   PipelineConsumeResult consume_result_1 = pipeline->Consume(
       [&test_val_1](std::unique_ptr<int> v) { ASSERT_EQ(*v, test_val_1); });
@@ -83,10 +77,8 @@ TEST(PipelineTest, PushingMultiProcessesInOrder) {
   Continuation continuation_2 = pipeline->Produce();
 
   const int test_val_1 = 1, test_val_2 = 2;
-  bool result = continuation_1.Complete(std::make_unique<int>(test_val_1));
-  ASSERT_EQ(result, true);
-  result = continuation_2.Complete(std::make_unique<int>(test_val_2));
-  ASSERT_EQ(result, true);
+  continuation_1.Complete(std::make_unique<int>(test_val_1));
+  continuation_2.Complete(std::make_unique<int>(test_val_2));
 
   PipelineConsumeResult consume_result_1 = pipeline->Consume(
       [&test_val_1](std::unique_ptr<int> v) { ASSERT_EQ(*v, test_val_1); });
@@ -97,37 +89,46 @@ TEST(PipelineTest, PushingMultiProcessesInOrder) {
   ASSERT_EQ(consume_result_2, PipelineConsumeResult::Done);
 }
 
-TEST(PipelineTest, ProduceIfEmptyDoesNotConsumeWhenQueueIsNotEmpty) {
+TEST(PipelineTest, PushingToFrontOverridesOrder) {
   const int depth = 2;
   fml::RefPtr<IntPipeline> pipeline = fml::MakeRefCounted<IntPipeline>(depth);
 
   Continuation continuation_1 = pipeline->Produce();
-  Continuation continuation_2 = pipeline->ProduceIfEmpty();
+  Continuation continuation_2 = pipeline->ProduceToFront();
 
   const int test_val_1 = 1, test_val_2 = 2;
-  bool result = continuation_1.Complete(std::make_unique<int>(test_val_1));
-  ASSERT_EQ(result, true);
-  result = continuation_2.Complete(std::make_unique<int>(test_val_2));
-  ASSERT_EQ(result, false);
+  continuation_1.Complete(std::make_unique<int>(test_val_1));
+  continuation_2.Complete(std::make_unique<int>(test_val_2));
 
   PipelineConsumeResult consume_result_1 = pipeline->Consume(
+      [&test_val_2](std::unique_ptr<int> v) { ASSERT_EQ(*v, test_val_2); });
+  ASSERT_EQ(consume_result_1, PipelineConsumeResult::MoreAvailable);
+
+  PipelineConsumeResult consume_result_2 = pipeline->Consume(
       [&test_val_1](std::unique_ptr<int> v) { ASSERT_EQ(*v, test_val_1); });
-  ASSERT_EQ(consume_result_1, PipelineConsumeResult::Done);
+  ASSERT_EQ(consume_result_2, PipelineConsumeResult::Done);
 }
 
-TEST(PipelineTest, ProduceIfEmptySuccessfulIfQueueIsEmpty) {
-  const int depth = 1;
+TEST(PipelineTest, PushingToFrontDropsLastResource) {
+  const int depth = 2;
   fml::RefPtr<IntPipeline> pipeline = fml::MakeRefCounted<IntPipeline>(depth);
 
-  Continuation continuation_1 = pipeline->ProduceIfEmpty();
+  Continuation continuation_1 = pipeline->Produce();
+  Continuation continuation_2 = pipeline->Produce();
+  Continuation continuation_3 = pipeline->ProduceToFront();
 
-  const int test_val_1 = 1;
-  bool result = continuation_1.Complete(std::make_unique<int>(test_val_1));
-  ASSERT_EQ(result, true);
+  const int test_val_1 = 1, test_val_2 = 2, test_val_3 = 3;
+  continuation_1.Complete(std::make_unique<int>(test_val_1));
+  continuation_2.Complete(std::make_unique<int>(test_val_2));
+  continuation_3.Complete(std::make_unique<int>(test_val_3));
 
   PipelineConsumeResult consume_result_1 = pipeline->Consume(
+      [&test_val_3](std::unique_ptr<int> v) { ASSERT_EQ(*v, test_val_3); });
+  ASSERT_EQ(consume_result_1, PipelineConsumeResult::MoreAvailable);
+
+  PipelineConsumeResult consume_result_2 = pipeline->Consume(
       [&test_val_1](std::unique_ptr<int> v) { ASSERT_EQ(*v, test_val_1); });
-  ASSERT_EQ(consume_result_1, PipelineConsumeResult::Done);
+  ASSERT_EQ(consume_result_2, PipelineConsumeResult::Done);
 }
 
 }  // namespace testing

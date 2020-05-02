@@ -32,7 +32,6 @@ class EnginePictureRecorder implements ui.PictureRecorder {
       return null;
     }
     _isRecording = false;
-    _canvas.endRecording();
     return EnginePicture(_canvas, cullRect);
   }
 }
@@ -47,9 +46,8 @@ class EnginePicture implements ui.Picture {
 
   @override
   Future<ui.Image> toImage(int width, int height) async {
-    final ui.Rect imageRect = ui.Rect.fromLTRB(0, 0, width.toDouble(), height.toDouble());
-    final BitmapCanvas canvas = BitmapCanvas(imageRect);
-    recordingCanvas.apply(canvas, imageRect);
+    final BitmapCanvas canvas = BitmapCanvas(ui.Rect.fromLTRB(0, 0, width.toDouble(), height.toDouble()));
+    recordingCanvas.apply(canvas);
     final String imageDataUrl = canvas.toDataUrl();
     final html.ImageElement imageElement = html.ImageElement()
       ..src = imageDataUrl

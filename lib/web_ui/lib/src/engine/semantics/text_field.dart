@@ -149,8 +149,8 @@ class TextField extends RoleManager {
       }
 
       textEditing.useCustomEditableElement(textEditingElement);
-      window
-          .invokeOnSemanticsAction(semanticsObject.id, ui.SemanticsAction.tap, null);
+      ui.window
+          .onSemanticsAction(semanticsObject.id, ui.SemanticsAction.tap, null);
     });
   }
 
@@ -187,7 +187,7 @@ class TextField extends RoleManager {
 
         if (offsetX * offsetX + offsetY * offsetY < kTouchSlop) {
           // Recognize it as a tap that requires a keyboard.
-          window.invokeOnSemanticsAction(
+          ui.window.onSemanticsAction(
               semanticsObject.id, ui.SemanticsAction.tap, null);
         }
       } else {

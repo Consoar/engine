@@ -6,7 +6,6 @@
 #define SHELL_COMMON_SHELL_H_
 
 #include <functional>
-#include <mutex>
 #include <string_view>
 #include <unordered_map>
 
@@ -22,7 +21,6 @@
 #include "flutter/fml/synchronization/sync_switch.h"
 #include "flutter/fml/synchronization/waitable_event.h"
 #include "flutter/fml/thread.h"
-#include "flutter/fml/time/time_point.h"
 #include "flutter/lib/ui/semantics/custom_accessibility_action.h"
 #include "flutter/lib/ui/semantics/semantics_node.h"
 #include "flutter/lib/ui/window/platform_message.h"
@@ -255,7 +253,7 @@ class Shell final : public PlatformView::Delegate,
   ///
   /// @return     A weak pointer to the rasterizer.
   ///
-  fml::TaskRunnerAffineWeakPtr<Rasterizer> GetRasterizer() const;
+  fml::WeakPtr<Rasterizer> GetRasterizer() const;
 
   //------------------------------------------------------------------------------
   /// @brief      Engines may only be accessed on the UI thread. This method is
@@ -277,7 +275,7 @@ class Shell final : public PlatformView::Delegate,
   // Embedders should call this under low memory conditions to free up
   // internal caches used.
   //
-  // This method posts a task to the raster threads to signal the Rasterizer to
+  // This method posts a task to the GPU threads to signal the Rasterizer to
   // free resources.
 
   //----------------------------------------------------------------------------
@@ -370,17 +368,14 @@ class Shell final : public PlatformView::Delegate,
   const TaskRunners task_runners_;
   const Settings settings_;
   DartVMRef vm_;
-  mutable std::mutex time_recorder_mutex_;
-  std::optional<fml::TimePoint> latest_frame_target_time_;
   std::unique_ptr<PlatformView> platform_view_;  // on platform task runner
   std::unique_ptr<Engine> engine_;               // on UI task runner
   std::unique_ptr<Rasterizer> rasterizer_;       // on GPU task runner
   std::unique_ptr<ShellIOManager> io_manager_;   // on IO task runner
   std::shared_ptr<fml::SyncSwitch> is_gpu_disabled_sync_switch_;
 
-  fml::WeakPtr<Engine> weak_engine_;  // to be shared across threads
-  fml::TaskRunnerAffineWeakPtr<Rasterizer>
-      weak_rasterizer_;  // to be shared across threads
+  fml::WeakPtr<Engine> weak_engine_;          // to be shared across threads
+  fml::WeakPtr<Rasterizer> weak_rasterizer_;  // to be shared across threads
   fml::WeakPtr<PlatformView>
       weak_platform_view_;  // to be shared across threads
 
@@ -398,7 +393,7 @@ class Shell final : public PlatformView::Delegate,
   std::mutex waiting_for_first_frame_mutex_;
   std::condition_variable waiting_for_first_frame_condition_;
 
-  // Written in the UI thread and read from the raster thread. Hence make it
+  // Written in the UI thread and read from the GPU thread. Hence make it
   // atomic.
   std::atomic<bool> needs_report_timings_{false};
 
@@ -412,10 +407,10 @@ class Shell final : public PlatformView::Delegate,
   std::vector<int64_t> unreported_timings_;
 
   // A cache of `Engine::GetDisplayRefreshRate` (only callable in the UI thread)
-  // so we can access it from `Rasterizer` (in the raster thread).
+  // so we can access it from `Rasterizer` (in the GPU thread).
   //
   // The atomic is for extra thread safety as this is written in the UI thread
-  // and read from the raster thread.
+  // and read from the GPU thread.
   std::atomic<float> display_refresh_rate_ = 0.0f;
 
   // How many frames have been timed since last report.
@@ -483,7 +478,7 @@ class Shell final : public PlatformView::Delegate,
   void OnPlatformViewSetNextFrameCallback(const fml::closure& closure) override;
 
   // |Animator::Delegate|
-  void OnAnimatorBeginFrame(fml::TimePoint frame_target_time) override;
+  void OnAnimatorBeginFrame(fml::TimePoint frame_time) override;
 
   // |Animator::Delegate|
   void OnAnimatorNotifyIdle(int64_t deadline) override;
@@ -521,9 +516,6 @@ class Shell final : public PlatformView::Delegate,
 
   // |Rasterizer::Delegate|
   fml::Milliseconds GetFrameBudget() override;
-
-  // |Rasterizer::Delegate|
-  fml::TimePoint GetLatestFrameTargetTime() const override;
 
   // |ServiceProtocol::Handler|
   fml::RefPtr<fml::TaskRunner> GetServiceProtocolHandlerTaskRunner(
@@ -569,16 +561,9 @@ class Shell final : public PlatformView::Delegate,
       const ServiceProtocol::Handler::ServiceProtocolMap& params,
       rapidjson::Document& response);
 
-  // Service protocol handler
-  //
-  // The returned SkSLs are base64 encoded. Decode before storing them to files.
-  bool OnServiceProtocolGetSkSLs(
-      const ServiceProtocol::Handler::ServiceProtocolMap& params,
-      rapidjson::Document& response);
-
   fml::WeakPtrFactory<Shell> weak_factory_;
 
-  // For accessing the Shell via the raster thread, necessary for various
+  // For accessing the Shell via the GPU thread, necessary for various
   // rasterizer callbacks.
   std::unique_ptr<fml::WeakPtrFactory<Shell>> weak_factory_gpu_;
 

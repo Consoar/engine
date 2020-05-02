@@ -37,7 +37,7 @@ class TestLocationStrategy extends LocationStrategy {
         history = <TestHistoryEntry>[initialEntry];
 
   @override
-  String get path => currentEntry.url;
+  String get path => ensureLeading(currentEntry.url, '/');
 
   int _currentEntryIndex;
   int get currentEntryIndex => _currentEntryIndex;

@@ -7,8 +7,6 @@
 
 #include "flutter/shell/platform/windows/public/flutter_windows.h"
 
-#include <string>
-
 namespace flutter {
 
 class Win32FlutterWindow;
@@ -23,11 +21,10 @@ class KeyboardHookHandler {
                             int key,
                             int scancode,
                             int action,
-                            char32_t character) = 0;
+                            int mods) = 0;
 
-  // A function for hooking into Unicode text input.
-  virtual void TextHook(Win32FlutterWindow* window,
-                        const std::u16string& text) = 0;
+  // A function for hooking into unicode code point input.
+  virtual void CharHook(Win32FlutterWindow* window, char32_t code_point) = 0;
 };
 
 }  // namespace flutter

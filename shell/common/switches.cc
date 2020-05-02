@@ -237,9 +237,6 @@ Settings SettingsFromCommandLine(const fml::CommandLine& command_line) {
     }
   }
 
-  settings.disable_http =
-      command_line.HasOption(FlagForSwitch(Switch::DisableHttp));
-
   // Disable need for authentication codes for VM service communication, if
   // specified.
   settings.disable_service_auth_codes =

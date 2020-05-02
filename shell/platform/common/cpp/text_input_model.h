@@ -27,18 +27,12 @@ class TextInputModel {
                        size_t selection_extent,
                        const std::string& text);
 
-  // Adds a Unicode code point.
+  // Adds a character.
   //
   // Either appends after the cursor (when selection base and extent are the
-  // same), or deletes the selected text, replacing it with the given
-  // code point.
-  void AddCodePoint(char32_t c);
-
-  // Adds a UTF-16 text.
-  //
-  // Either appends after the cursor (when selection base and extent are the
-  // same), or deletes the selected text, replacing it with the given text.
-  void AddText(const std::u16string& text);
+  // same), or deletes the selected characters, replacing the text with the
+  // character specified.
+  void AddCharacter(char32_t c);
 
   // Deletes either the selection, or one character ahead of the cursor.
   //
@@ -95,12 +89,12 @@ class TextInputModel {
  private:
   void DeleteSelected();
 
-  std::u16string text_;
+  std::u32string text_;
   int client_id_;
   std::string input_type_;
   std::string input_action_;
-  std::u16string::iterator selection_base_;
-  std::u16string::iterator selection_extent_;
+  std::u32string::iterator selection_base_;
+  std::u32string::iterator selection_extent_;
 };
 
 }  // namespace flutter

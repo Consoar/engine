@@ -12,8 +12,6 @@ import androidx.test.internal.runner.junit4.statement.UiThreadStatement;
 import androidx.test.runner.AndroidJUnit4;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.embedding.engine.dart.DartExecutor;
-import java.util.Arrays;
-import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -36,24 +34,15 @@ public class EngineLaunchE2ETest {
     UiThreadStatement.runOnUiThread(() -> engine.set(new FlutterEngine(applicationContext)));
     CompletableFuture<Boolean> statusReceived = new CompletableFuture<>();
 
-    // Resolve locale to `en_US`.
-    // This is required, so `window.locale` in populated in dart.
-    // TODO: Fix race condition between sending this over the channel and starting the entrypoint.
-    // https://github.com/flutter/flutter/issues/55999
-    UiThreadStatement.runOnUiThread(
-        () ->
-            engine.get().getLocalizationChannel().sendLocales(Arrays.asList(Locale.US), Locale.US));
-
-    // The default Dart main entrypoint sends back a platform message on the "waiting_for_status"
+    // The default Dart main entrypoint sends back a platform message on the "scenario_status"
     // channel. That will be our launch success assertion condition.
     engine
         .get()
         .getDartExecutor()
         .setMessageHandler(
-            "waiting_for_status",
-            (byteBuffer, binaryReply) -> statusReceived.complete(Boolean.TRUE));
+            "scenario_status", (byteBuffer, binaryReply) -> statusReceived.complete(Boolean.TRUE));
 
-    // Launching the entrypoint will run the Dart code that sends the "waiting_for_status" platform
+    // Launching the entrypoint will run the Dart code that sends the "scenario_status" platform
     // message.
     UiThreadStatement.runOnUiThread(
         () ->
@@ -65,7 +54,7 @@ public class EngineLaunchE2ETest {
     try {
       Boolean result = statusReceived.get(10, TimeUnit.SECONDS);
       if (!result) {
-        fail("expected message on waiting_for_status not received");
+        fail("expected message on scenario_status not received");
       }
     } catch (ExecutionException e) {
       fail(e.getMessage());

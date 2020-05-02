@@ -30,7 +30,7 @@ class StandardMethodCodec : public MethodCodec<EncodableValue> {
   // |flutter::MethodCodec|
   std::unique_ptr<MethodCall<EncodableValue>> DecodeMethodCallInternal(
       const uint8_t* message,
-      size_t message_size) const override;
+      const size_t message_size) const override;
 
   // |flutter::MethodCodec|
   std::unique_ptr<std::vector<uint8_t>> EncodeMethodCallInternal(
@@ -45,12 +45,6 @@ class StandardMethodCodec : public MethodCodec<EncodableValue> {
       const std::string& error_code,
       const std::string& error_message,
       const EncodableValue* error_details) const override;
-
-  // |flutter::MethodCodec|
-  bool DecodeAndProcessResponseEnvelopeInternal(
-      const uint8_t* response,
-      size_t response_size,
-      MethodResult<EncodableValue>* result) const override;
 };
 
 }  // namespace flutter

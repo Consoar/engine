@@ -4,7 +4,6 @@
 
 #include "flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.h"
 #include "flutter/fml/logging.h"
-#include "flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h"
 
 #include <AudioToolbox/AudioToolbox.h>
 #include <Foundation/Foundation.h>
@@ -162,15 +161,6 @@ using namespace flutter;
   // UIViewControllerBasedStatusBarAppearance
   [UIApplication sharedApplication].statusBarHidden =
       ![overlays containsObject:@"SystemUiOverlay.top"];
-  if ([overlays containsObject:@"SystemUiOverlay.bottom"]) {
-    [[NSNotificationCenter defaultCenter]
-        postNotificationName:FlutterViewControllerShowHomeIndicator
-                      object:nil];
-  } else {
-    [[NSNotificationCenter defaultCenter]
-        postNotificationName:FlutterViewControllerHideHomeIndicator
-                      object:nil];
-  }
 }
 
 - (void)restoreSystemChromeSystemUIOverlays {

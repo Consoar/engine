@@ -12,7 +12,6 @@
 #include "flutter/lib/ui/compositing/scene_host.h"
 #include "flutter/lib/ui/window/pointer_data.h"
 #include "flutter/lib/ui/window/window.h"
-#include "flutter_runner_product_configuration.h"
 #include "logging.h"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
@@ -92,8 +91,7 @@ PlatformView::PlatformView(
     OnMetricsUpdate session_metrics_did_change_callback,
     OnSizeChangeHint session_size_change_hint_callback,
     OnEnableWireframe wireframe_enabled_callback,
-    zx_handle_t vsync_event_handle,
-    FlutterRunnerProductConfiguration product_config)
+    zx_handle_t vsync_event_handle)
     : flutter::PlatformView(delegate, std::move(task_runners)),
       debug_label_(std::move(debug_label)),
       view_ref_(std::move(view_ref)),
@@ -105,8 +103,7 @@ PlatformView::PlatformView(
       wireframe_enabled_callback_(std::move(wireframe_enabled_callback)),
       ime_client_(this),
       surface_(std::make_unique<Surface>(debug_label_)),
-      vsync_event_handle_(vsync_event_handle),
-      product_config_(product_config) {
+      vsync_event_handle_(vsync_event_handle) {
   // Register all error handlers.
   SetInterfaceErrorHandler(session_listener_binding_, "SessionListener");
   SetInterfaceErrorHandler(ime_, "Input Method Editor");
@@ -564,8 +561,7 @@ void PlatformView::DeactivateIme() {
 // |flutter::PlatformView|
 std::unique_ptr<flutter::VsyncWaiter> PlatformView::CreateVSyncWaiter() {
   return std::make_unique<flutter_runner::VsyncWaiter>(
-      debug_label_, vsync_event_handle_, task_runners_,
-      product_config_.get_vsync_offset());
+      debug_label_, vsync_event_handle_, task_runners_);
 }
 
 // |flutter::PlatformView|
@@ -582,18 +578,12 @@ void PlatformView::HandlePlatformMessage(
   if (!message) {
     return;
   }
-  const std::string channel = message->channel();
-  auto found = platform_message_handlers_.find(channel);
+  auto found = platform_message_handlers_.find(message->channel());
   if (found == platform_message_handlers_.end()) {
-    const bool already_errored = unregistered_channels_.count(channel);
-    if (!already_errored) {
-      FML_LOG(INFO)
-          << "Platform view received message on channel '" << message->channel()
-          << "' with no registered handler. And empty response will be "
-             "generated. Please implement the native message handler. This "
-             "message will appear only once per channel.";
-      unregistered_channels_.insert(channel);
-    }
+    FML_LOG(ERROR)
+        << "Platform view received message on channel '" << message->channel()
+        << "' with no registered handler. And empty response will be "
+           "generated. Please implement the native message handler.";
     flutter::PlatformView::HandlePlatformMessage(std::move(message));
     return;
   }

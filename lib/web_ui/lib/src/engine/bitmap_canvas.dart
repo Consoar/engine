@@ -273,7 +273,7 @@ class BitmapCanvas extends EngineCanvas {
   }
 
   @override
-  void transform(Float32List matrix4) {
+  void transform(Float64List matrix4) {
     _canvasPool.transform(matrix4);
   }
 
@@ -355,18 +355,15 @@ class BitmapCanvas extends EngineCanvas {
   void drawImage(ui.Image image, ui.Offset p, SurfacePaintData paint) {
     _drawImage(image, p, paint);
     _childOverdraw = true;
-    _canvasPool.closeCurrentCanvas();
+    _canvasPool.allocateExtraCanvas();
   }
 
-  html.ImageElement _drawImage(
-      ui.Image image, ui.Offset p, SurfacePaintData paint) {
+  html.ImageElement _drawImage(ui.Image image, ui.Offset p, SurfacePaintData paint) {
     final HtmlImage htmlImage = image;
     final html.Element imgElement = htmlImage.cloneImageElement();
     final ui.BlendMode blendMode = paint.blendMode;
     imgElement.style.mixBlendMode = _stringForBlendMode(blendMode);
     if (_canvasPool.isClipped) {
-      // Reset width/height since they may have been previously set.
-      imgElement.style..removeProperty('width')..removeProperty('height');
       final List<html.Element> clipElements = _clipContent(
           _canvasPool._clipStack, imgElement, p, _canvasPool.currentTransform);
       for (html.Element clipElement in clipElements) {
@@ -378,10 +375,7 @@ class BitmapCanvas extends EngineCanvas {
           transformWithOffset(_canvasPool.currentTransform, p).storage);
       imgElement.style
         ..transformOrigin = '0 0 0'
-        ..transform = cssTransform
-        // Reset width/height since they may have been previously set.
-        ..removeProperty('width')
-        ..removeProperty('height');
+        ..transform = cssTransform;
       rootElement.append(imgElement);
       _children.add(imgElement);
     }
@@ -417,8 +411,7 @@ class BitmapCanvas extends EngineCanvas {
         }
       }
 
-      final html.ImageElement imgElement =
-          _drawImage(image, ui.Offset(targetLeft, targetTop), paint);
+      final html.ImageElement imgElement = _drawImage(image, ui.Offset(targetLeft, targetTop), paint);
       // To scale set width / height on destination image.
       // For clipping we need to scale according to
       // clipped-width/full image width and shift it according to left/top of
@@ -436,22 +429,8 @@ class BitmapCanvas extends EngineCanvas {
       if (requiresClipping) {
         restore();
       }
+      _canvasPool.allocateExtraCanvas();
     }
-    _closeCurrentCanvas();
-  }
-
-  // Should be called when we add new html elements into rootElement so that
-  // paint order is preserved.
-  //
-  // For example if we draw a path and then a paragraph and image:
-  //   - rootElement
-  //   |--- <canvas>
-  //   |--- <p>
-  //   |--- <img>
-  // Any drawing operations after these tags should allocate a new canvas,
-  // instead of drawing into earlier canvas.
-  void _closeCurrentCanvas() {
-    _canvasPool.closeCurrentCanvas();
     _childOverdraw = true;
   }
 
@@ -489,11 +468,10 @@ class BitmapCanvas extends EngineCanvas {
   @override
   void drawParagraph(EngineParagraph paragraph, ui.Offset offset) {
     assert(paragraph._isLaidOut);
+    html.CanvasRenderingContext2D ctx = _canvasPool.context;
     final ParagraphGeometricStyle style = paragraph._geometricStyle;
 
     if (paragraph._drawOnCanvas && _childOverdraw == false) {
-      // !Do not move this assignment above this if clause since, accessing
-      // context will generate extra <canvas> tags.
       final List<EngineLineMetrics> lines = paragraph._measurementResult.lines;
 
       final SurfacePaintData backgroundPaint = paragraph._background?.paintData;
@@ -504,7 +482,6 @@ class BitmapCanvas extends EngineCanvas {
       }
 
       if (style != _cachedLastStyle) {
-        html.CanvasRenderingContext2D ctx = _canvasPool.context;
         ctx.font = style.cssFontString;
         _cachedLastStyle = style;
       }
@@ -521,6 +498,7 @@ class BitmapCanvas extends EngineCanvas {
 
     final html.Element paragraphElement =
         _drawParagraphElement(paragraph, offset);
+
     if (_canvasPool.isClipped) {
       final List<html.Element> clipElements = _clipContent(
           _canvasPool._clipStack,
@@ -539,13 +517,12 @@ class BitmapCanvas extends EngineCanvas {
       rootElement.append(paragraphElement);
     }
     _children.add(paragraphElement);
-    _closeCurrentCanvas();
   }
 
   /// Paints the [picture] into this canvas.
   void drawPicture(ui.Picture picture) {
     final EnginePicture enginePicture = picture;
-    enginePicture.recordingCanvas.apply(this, bounds);
+    enginePicture.recordingCanvas.apply(this);
   }
 
   /// Draws vertices on a gl context.
@@ -791,8 +768,6 @@ List<html.Element> _clipContent(List<_SaveClipEntry> clipStack,
 }
 
 String _maskFilterToCss(ui.MaskFilter maskFilter) {
-  if (maskFilter == null) {
-    return 'none';
-  }
+  if (maskFilter == null) return 'none';
   return 'blur(${maskFilter.webOnlySigma}px)';
 }

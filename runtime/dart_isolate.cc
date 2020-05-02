@@ -136,9 +136,8 @@ DartIsolate::DartIsolate(const Settings& settings,
                   advisory_script_entrypoint,
                   settings.log_tag,
                   settings.unhandled_exception_callback,
-                  DartVMRef::GetIsolateNameServer(),
-                  is_root_isolate),
-      disable_http_(settings.disable_http) {
+                  DartVMRef::GetIsolateNameServer()),
+      is_root_isolate_(is_root_isolate) {
   phase_ = Phase::Uninitialized;
 }
 
@@ -223,9 +222,9 @@ bool DartIsolate::UpdateThreadPoolNames() const {
   // shells sharing the same (or subset of) threads.
   const auto& task_runners = GetTaskRunners();
 
-  if (auto task_runner = task_runners.GetRasterTaskRunner()) {
+  if (auto task_runner = task_runners.GetGPUTaskRunner()) {
     task_runner->PostTask(
-        [label = task_runners.GetLabel() + std::string{".raster"}]() {
+        [label = task_runners.GetLabel() + std::string{".gpu"}]() {
           Dart_SetThreadName(label.c_str());
         });
   }
@@ -262,9 +261,9 @@ bool DartIsolate::LoadLibraries() {
 
   tonic::DartState::Scope scope(this);
 
-  DartIO::InitForIsolate(disable_http_);
+  DartIO::InitForIsolate();
 
-  DartUI::InitForIsolate();
+  DartUI::InitForIsolate(IsRootIsolate());
 
   const bool is_service_isolate = Dart_IsServiceIsolate(isolate());
 
@@ -688,7 +687,7 @@ Dart_Isolate DartIsolate::DartIsolateGroupCreateCallback(
               parent_group_data.GetIsolateShutdownCallback())));
 
   TaskRunners null_task_runners(advisory_script_uri,
-                                /* platform= */ nullptr, /* raster= */ nullptr,
+                                /* platform= */ nullptr, /* gpu= */ nullptr,
                                 /* ui= */ nullptr,
                                 /* io= */ nullptr);
 
@@ -730,7 +729,7 @@ bool DartIsolate::DartIsolateInitializeCallback(void** child_callback_data,
           Dart_CurrentIsolateGroupData());
 
   TaskRunners null_task_runners((*isolate_group_data)->GetAdvisoryScriptURI(),
-                                /* platform= */ nullptr, /* raster= */ nullptr,
+                                /* platform= */ nullptr, /* gpu= */ nullptr,
                                 /* ui= */ nullptr,
                                 /* io= */ nullptr);
 

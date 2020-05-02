@@ -35,7 +35,7 @@ class SafariArgParser extends BrowserArgParser {
 
   @override
   void parseOptions(ArgResults argResults) {
-    _version = argResults['safari-version'] as String;
+    _version = argResults['safari-version'];
     assert(_version == 'system');
   }
 

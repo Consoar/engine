@@ -21,10 +21,8 @@ LayerTree::LayerTree(const SkISize& frame_size,
       checkerboard_raster_cache_images_(false),
       checkerboard_offscreen_layers_(false) {}
 
-void LayerTree::RecordBuildTime(fml::TimePoint build_start,
-                                fml::TimePoint target_time) {
-  build_start_ = build_start;
-  target_time_ = target_time;
+void LayerTree::RecordBuildTime(fml::TimePoint start) {
+  build_start_ = start;
   build_finish_ = fml::TimePoint::Now();
 }
 
@@ -85,7 +83,7 @@ void LayerTree::UpdateScene(SceneUpdateContext& context,
       context,
       SkRRect::MakeRect(
           SkRect::MakeWH(frame_size_.width(), frame_size_.height())),
-      SK_ColorTRANSPARENT, SK_AlphaOPAQUE, "flutter::LayerTree");
+      SK_ColorTRANSPARENT, SK_AlphaOPAQUE);
   if (root_layer_->needs_system_composite()) {
     root_layer_->UpdateScene(context);
   }

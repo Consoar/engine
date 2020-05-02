@@ -9,7 +9,6 @@ void main() {
   final Paint paint = Paint()..color = Color(0xFFFFFFFF);
   print(jsonEncode(<String, String>{
     'Paint.toString': paint.toString(),
-    'Brightness.toString': Brightness.dark.toString(),
     'Foo.toString': Foo().toString(),
     'Keep.toString': Keep().toString(),
   }));

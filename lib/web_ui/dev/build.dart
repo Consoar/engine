@@ -13,7 +13,7 @@ import 'package:watcher/watcher.dart';
 import 'environment.dart';
 import 'utils.dart';
 
-class BuildCommand extends Command<bool> with ArgUtils {
+class BuildCommand extends Command<bool> {
   BuildCommand() {
     argParser
       ..addFlag(
@@ -35,9 +35,15 @@ class BuildCommand extends Command<bool> with ArgUtils {
   @override
   String get description => 'Build the Flutter web engine.';
 
-  bool get isWatchMode => boolArg('watch');
+  bool get isWatchMode => argResults['watch'];
 
-  int getNinjaJobCount() => intArg('ninja-jobs');
+  int getNinjaJobCount() {
+    final String ninjaJobsArg = argResults['ninja-jobs'];
+    if (ninjaJobsArg != null) {
+      return int.tryParse(ninjaJobsArg);
+    }
+    return null;
+  }
 
   @override
   FutureOr<bool> run() async {

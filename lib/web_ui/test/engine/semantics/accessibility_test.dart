@@ -33,8 +33,7 @@ void main() {
       // Initially there is no accessibility-element
       expect(document.getElementById('accessibility-element'), isNull);
 
-      accessibilityAnnouncements.handleMessage(codec,
-          codec.encodeMessage(testInput));
+      accessibilityAnnouncements.handleMessage(codec.encodeMessage(testInput));
       expect(
         document.getElementById('accessibility-element'),
         isNotNull,

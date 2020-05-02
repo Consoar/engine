@@ -169,9 +169,11 @@ void PointerDataPacketConverter::ConvertPointerData(
         PointerState state = iter->second;
         FML_DCHECK(state.isDown);
 
-        UpdatePointerIdentifier(pointer_data, state, false);
-        UpdateDeltaAndState(pointer_data, state);
-        converted_pointers.push_back(pointer_data);
+        if (LocationNeedsUpdate(pointer_data, state)) {
+          UpdatePointerIdentifier(pointer_data, state, false);
+          UpdateDeltaAndState(pointer_data, state);
+          converted_pointers.push_back(pointer_data);
+        }
         break;
       }
       case PointerData::Change::kUp: {

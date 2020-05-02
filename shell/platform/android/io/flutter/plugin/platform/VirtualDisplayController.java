@@ -11,12 +11,10 @@ import android.content.Context;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.os.Build;
-import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.View;
 import android.view.ViewTreeObserver;
 import androidx.annotation.NonNull;
-import androidx.annotation.VisibleForTesting;
 import io.flutter.view.TextureRegistry;
 
 @TargetApi(Build.VERSION_CODES.KITKAT_WATCH)
@@ -63,7 +61,7 @@ class VirtualDisplayController {
   private final TextureRegistry.SurfaceTextureEntry textureEntry;
   private final OnFocusChangeListener focusChangeListener;
   private VirtualDisplay virtualDisplay;
-  @VisibleForTesting SingleViewPresentation presentation;
+  private SingleViewPresentation presentation;
   private Surface surface;
 
   private VirtualDisplayController(
@@ -146,11 +144,7 @@ class VirtualDisplayController {
           public void onViewDetachedFromWindow(View v) {}
         });
 
-    // Create a new SingleViewPresentation and show() it before we cancel() the existing
-    // presentation. Calling show() and cancel() in this order fixes
-    // https://github.com/flutter/flutter/issues/26345 and maintains seamless transition
-    // of the contents of the presentation.
-    SingleViewPresentation newPresentation =
+    presentation =
         new SingleViewPresentation(
             context,
             virtualDisplay.getDisplay(),
@@ -158,9 +152,7 @@ class VirtualDisplayController {
             presentationState,
             focusChangeListener,
             isFocused);
-    newPresentation.show();
-    presentation.cancel();
-    presentation = newPresentation;
+    presentation.show();
   }
 
   public void dispose() {
@@ -207,12 +199,6 @@ class VirtualDisplayController {
     if (presentation == null) return null;
     PlatformView platformView = presentation.getView();
     return platformView.getView();
-  }
-
-  /** Dispatches a motion event to the presentation for this controller. */
-  public void dispatchTouchEvent(MotionEvent event) {
-    if (presentation == null) return;
-    presentation.dispatchTouchEvent(event);
   }
 
   @TargetApi(Build.VERSION_CODES.JELLY_BEAN)

@@ -71,7 +71,7 @@ class EngineScubaTester {
       sceneElement.append(canvas.rootElement);
       html.document.body.append(sceneElement);
       String screenshotName = '${fileName}_${canvas.runtimeType}';
-      if (WebExperiments.instance.useCanvasText) {
+      if (TextMeasurementService.enableExperimentalCanvasImplementation) {
         screenshotName += '+canvas_measurement';
       }
       await diffScreenshot(
@@ -96,20 +96,18 @@ void testEachCanvas(String description, CanvasTest body,
   test('$description (bitmap)', () {
     try {
       TextMeasurementService.initialize(rulerCacheCapacity: 2);
-      WebExperiments.instance.useCanvasText = false;
       return body(BitmapCanvas(bounds));
     } finally {
-      WebExperiments.instance.useCanvasText = null;
       TextMeasurementService.clearCache();
     }
   });
   test('$description (bitmap + canvas measurement)', () async {
     try {
       TextMeasurementService.initialize(rulerCacheCapacity: 2);
-      WebExperiments.instance.useCanvasText = true;
+      TextMeasurementService.enableExperimentalCanvasImplementation = true;
       await body(BitmapCanvas(bounds));
     } finally {
-      WebExperiments.instance.useCanvasText = null;
+      TextMeasurementService.enableExperimentalCanvasImplementation = false;
       TextMeasurementService.clearCache();
     }
   });

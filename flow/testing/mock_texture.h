@@ -25,7 +25,7 @@ class MockTexture : public Texture {
 
   explicit MockTexture(int64_t textureId);
 
-  // Called from raster thread.
+  // Called from GPU thread.
   void Paint(SkCanvas& canvas,
              const SkRect& bounds,
              bool freeze,

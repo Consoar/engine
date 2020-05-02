@@ -15,7 +15,6 @@
 
 #include "flutter/fml/macros.h"
 #include "flutter/shell/common/shell.h"
-#include "flutter_runner_product_configuration.h"
 #include "isolate_configurator.h"
 #include "thread.h"
 
@@ -38,8 +37,7 @@ class Engine final {
          fml::RefPtr<const flutter::DartSnapshot> isolate_snapshot,
          fuchsia::ui::views::ViewToken view_token,
          UniqueFDIONS fdio_ns,
-         fidl::InterfaceRequest<fuchsia::io::Directory> directory_request,
-         FlutterRunnerProductConfiguration product_config);
+         fidl::InterfaceRequest<fuchsia::io::Directory> directory_request);
   ~Engine();
 
   // Returns the Dart return code for the root isolate if one is present. This

@@ -53,20 +53,20 @@ class Scrollable extends RoleManager {
       final int semanticsId = semanticsObject.id;
       if (doScrollForward) {
         if (semanticsObject.isVerticalScrollContainer) {
-          window.invokeOnSemanticsAction(
+          ui.window.onSemanticsAction(
               semanticsId, ui.SemanticsAction.scrollUp, null);
         } else {
           assert(semanticsObject.isHorizontalScrollContainer);
-          window.invokeOnSemanticsAction(
+          ui.window.onSemanticsAction(
               semanticsId, ui.SemanticsAction.scrollLeft, null);
         }
       } else {
         if (semanticsObject.isVerticalScrollContainer) {
-          window.invokeOnSemanticsAction(
+          ui.window.onSemanticsAction(
               semanticsId, ui.SemanticsAction.scrollDown, null);
         } else {
           assert(semanticsObject.isHorizontalScrollContainer);
-          window.invokeOnSemanticsAction(
+          ui.window.onSemanticsAction(
               semanticsId, ui.SemanticsAction.scrollRight, null);
         }
       }

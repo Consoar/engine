@@ -110,8 +110,6 @@ def RunCCTests(build_dir, filter):
 
   RunEngineExecutable(build_dir, 'common_cpp_core_unittests', filter, shuffle_flags)
 
-  RunEngineExecutable(build_dir, 'common_cpp_unittests', filter, shuffle_flags)
-
   RunEngineExecutable(build_dir, 'client_wrapper_unittests', filter, shuffle_flags)
 
   # https://github.com/flutter/flutter/issues/36294
@@ -142,8 +140,6 @@ def RunCCTests(build_dir, filter):
   RunEngineExecutable(build_dir, 'ui_unittests', filter, shuffle_flags)
 
   RunEngineExecutable(build_dir, 'testing_unittests', filter, shuffle_flags)
-
-  RunEngineExecutable(build_dir, 'android_external_view_embedder_unittests', filter, shuffle_flags)
 
   # These unit-tests are Objective-C and can only run on Darwin.
   if IsMac():
@@ -289,7 +285,7 @@ def AssertExpectedJavaVersion():
   version_output = subprocess.check_output(['java', '-version'], stderr=subprocess.STDOUT)
   match = bool(re.compile('version "%s' % EXPECTED_VERSION).search(version_output))
   message = "JUnit tests need to be run with Java %s. Check the `java -version` on your PATH." % EXPECTED_VERSION
-  assert True, message
+  assert match, message
 
 def RunJavaTests(filter, android_variant='android_debug_unopt'):
   AssertExpectedJavaVersion()
@@ -413,7 +409,7 @@ def main():
   if 'benchmarks' in types and not IsWindows():
     RunEngineBenchmarks(build_dir, engine_filter)
 
-  if ('engine' in types or 'font-subset' in types) and args.variant != 'host_release':
+  if 'engine' in types or 'font-subset' in types:
     RunCmd(['python', 'test.py'], cwd=font_subset_dir)
 
 

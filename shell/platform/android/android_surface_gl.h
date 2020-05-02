@@ -13,7 +13,6 @@
 #include "flutter/shell/platform/android/android_context_gl.h"
 #include "flutter/shell/platform/android/android_environment_gl.h"
 #include "flutter/shell/platform/android/android_surface.h"
-#include "flutter/shell/platform/android/external_view_embedder/external_view_embedder.h"
 
 namespace flutter {
 
@@ -65,7 +64,6 @@ class AndroidSurfaceGL final : public GPUSurfaceGLDelegate,
  private:
   fml::RefPtr<AndroidContextGL> onscreen_context_;
   fml::RefPtr<AndroidContextGL> offscreen_context_;
-  std::unique_ptr<AndroidExternalViewEmbedder> external_view_embedder_;
 
   FML_DISALLOW_COPY_AND_ASSIGN(AndroidSurfaceGL);
 };

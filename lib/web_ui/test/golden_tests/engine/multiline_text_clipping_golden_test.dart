@@ -21,11 +21,10 @@ void main() async {
   setUpStableTestFonts();
 
   void paintTest(EngineCanvas canvas, PaintTest painter) {
-    final Rect screenRect = const Rect.fromLTWH(0, 0, 600, 600);
-    final RecordingCanvas recordingCanvas = RecordingCanvas(screenRect);
+    final RecordingCanvas recordingCanvas =
+        RecordingCanvas(const Rect.fromLTWH(0, 0, 600, 600));
     painter(recordingCanvas);
-    recordingCanvas.endRecording();
-    recordingCanvas.apply(canvas, screenRect);
+    recordingCanvas.apply(canvas);
   }
 
   testEachCanvas(

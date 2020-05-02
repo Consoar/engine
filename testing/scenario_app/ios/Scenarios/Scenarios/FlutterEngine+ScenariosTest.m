@@ -13,7 +13,7 @@
                     project:nil];
   [self runWithEntrypoint:nil];
   [self.binaryMessenger
-      setMessageHandlerOnChannel:@"waiting_for_status"
+      setMessageHandlerOnChannel:@"scenario_status"
             binaryMessageHandler:^(NSData* message, FlutterBinaryReply reply) {
               [self.binaryMessenger
                   sendOnChannel:@"set_scenario"

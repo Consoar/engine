@@ -76,7 +76,7 @@ void DartServiceIsolate::NotifyServerState(Dart_NativeArguments args) {
     }
   }
 
-  for (const auto& callback_to_fire : callbacks_to_fire) {
+  for (auto callback_to_fire : callbacks_to_fire) {
     callback_to_fire(uri);
   }
 }

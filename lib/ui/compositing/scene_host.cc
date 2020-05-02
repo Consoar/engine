@@ -47,7 +47,6 @@ using SceneHostBindings = std::unordered_map<SceneHostBindingKey,
 static SceneHostBindings scene_host_bindings;
 
 void SceneHost_constructor(Dart_NativeArguments args) {
-  flutter::UIDartState::ThrowIfUIOperationsProhibited();
   tonic::DartCallConstructor(&flutter::SceneHost::Create, args);
 }
 
@@ -163,8 +162,8 @@ SceneHost::SceneHost(fml::RefPtr<zircon::dart::Handle> viewHolderToken,
                      Dart_Handle viewConnectedCallback,
                      Dart_Handle viewDisconnectedCallback,
                      Dart_Handle viewStateChangedCallback)
-    : raster_task_runner_(
-          UIDartState::Current()->GetTaskRunners().GetRasterTaskRunner()),
+    : gpu_task_runner_(
+          UIDartState::Current()->GetTaskRunners().GetGPUTaskRunner()),
       koid_(GetKoid(viewHolderToken->handle())) {
   auto dart_state = UIDartState::Current();
   isolate_service_id_ = Dart_IsolateServiceId(Dart_CurrentIsolate());
@@ -181,7 +180,7 @@ SceneHost::SceneHost(fml::RefPtr<zircon::dart::Handle> viewHolderToken,
   }
 
   // This callback will be posted as a task  when the |scenic::ViewHolder|
-  // resource is created and given an id by the raster thread.
+  // resource is created and given an id by the GPU thread.
   auto bind_callback = [scene_host = this,
                         isolate_service_id =
                             isolate_service_id_](scenic::ResourceId id) {
@@ -189,9 +188,9 @@ SceneHost::SceneHost(fml::RefPtr<zircon::dart::Handle> viewHolderToken,
     scene_host_bindings.emplace(std::make_pair(key, scene_host));
   };
 
-  // Pass the raw handle to the raster thread; destroying a
-  // |zircon::dart::Handle| on that thread can cause a race condition.
-  raster_task_runner_->PostTask(
+  // Pass the raw handle to the GPU thead; destroying a |zircon::dart::Handle|
+  // on that thread can cause a race condition.
+  gpu_task_runner_->PostTask(
       [id = koid_,
        ui_task_runner =
            UIDartState::Current()->GetTaskRunners().GetUITaskRunner(),
@@ -206,7 +205,7 @@ SceneHost::SceneHost(fml::RefPtr<zircon::dart::Handle> viewHolderToken,
 SceneHost::~SceneHost() {
   scene_host_bindings.erase(SceneHostBindingKey(koid_, isolate_service_id_));
 
-  raster_task_runner_->PostTask(
+  gpu_task_runner_->PostTask(
       [id = koid_]() { flutter::ViewHolder::Destroy(id); });
 }
 
@@ -221,9 +220,8 @@ void SceneHost::setProperties(double width,
                               double insetBottom,
                               double insetLeft,
                               bool focusable) {
-  raster_task_runner_->PostTask([id = koid_, width, height, insetTop,
-                                 insetRight, insetBottom, insetLeft,
-                                 focusable]() {
+  gpu_task_runner_->PostTask([id = koid_, width, height, insetTop, insetRight,
+                              insetBottom, insetLeft, focusable]() {
     auto* view_holder = flutter::ViewHolder::FromId(id);
     FML_DCHECK(view_holder);
 

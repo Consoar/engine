@@ -15,7 +15,7 @@ namespace dart_runner {
 
 class DartRunner : public fuchsia::sys::Runner {
  public:
-  explicit DartRunner(sys::ComponentContext* context);
+  explicit DartRunner();
   ~DartRunner() override;
 
  private:
@@ -26,8 +26,7 @@ class DartRunner : public fuchsia::sys::Runner {
       ::fidl::InterfaceRequest<fuchsia::sys::ComponentController> controller)
       override;
 
-  // Not owned by DartRunner.
-  sys::ComponentContext* context_;
+  std::unique_ptr<sys::ComponentContext> context_;
   fidl::BindingSet<fuchsia::sys::Runner> bindings_;
 
 #if !defined(AOT_RUNTIME)

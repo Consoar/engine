@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 // @dart = 2.6
-import 'dart:async';
 import 'dart:convert';
 import 'dart:html' as html;
 import 'dart:typed_data';
@@ -86,9 +85,6 @@ Future<void> main() async {
           responseType: 'arraybuffer');
       await ui.loadFontFromList(Uint8List.view(response.response),
           fontFamily: 'Blehm');
-      final Completer<void> completer = Completer();
-      html.window.requestAnimationFrame( (_) { completer.complete(true); } );
-      await(completer.future);
       window.onPlatformMessage = oldHandler;
       expect(actualName, 'flutter/system');
       expect(message, '{"type":"fontsChange"}');

@@ -201,7 +201,7 @@ static NSString* kBackgroundFetchCapatibility = @"fetch";
 
 #pragma mark - Selectors handling
 
-- (void)addApplicationLifeCycleDelegate:(NSObject<FlutterApplicationLifeCycleDelegate>*)delegate {
+- (void)addApplicationLifeCycleDelegate:(NSObject<FlutterPlugin>*)delegate {
   [_lifeCycleDelegate addDelegate:delegate];
 }
 

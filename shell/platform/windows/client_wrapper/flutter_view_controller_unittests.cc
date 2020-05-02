@@ -16,16 +16,19 @@ namespace {
 // Stub implementation to validate calls to the API.
 class TestWindowsApi : public testing::StubFlutterWindowsApi {
   FlutterDesktopViewControllerRef CreateViewController(
-      int width,
-      int height,
-      const FlutterDesktopEngineProperties& engine_properties) override {
+      int initial_width,
+      int initial_height,
+      const char* assets_path,
+      const char* icu_data_path,
+      const char** arguments,
+      size_t argument_count) override {
     return reinterpret_cast<FlutterDesktopViewControllerRef>(1);
   }
 };
 
 }  // namespace
 
-TEST(FlutterViewControllerTest, CreateDestroyLegacy) {
+TEST(FlutterViewControllerTest, CreateDestroy) {
   testing::ScopedStubFlutterWindowsApi scoped_api_stub(
       std::make_unique<TestWindowsApi>());
   auto test_api = static_cast<TestWindowsApi*>(scoped_api_stub.stub());
@@ -35,20 +38,13 @@ TEST(FlutterViewControllerTest, CreateDestroyLegacy) {
   }
 }
 
-TEST(FlutterViewControllerTest, CreateDestroy) {
-  DartProject project(L"data");
-  testing::ScopedStubFlutterWindowsApi scoped_api_stub(
-      std::make_unique<TestWindowsApi>());
-  auto test_api = static_cast<TestWindowsApi*>(scoped_api_stub.stub());
-  { FlutterViewController controller(100, 100, project); }
-}
-
 TEST(FlutterViewControllerTest, GetView) {
-  DartProject project(L"data");
+  std::string icu_data_path = "fake_path_to_icu";
   testing::ScopedStubFlutterWindowsApi scoped_api_stub(
       std::make_unique<TestWindowsApi>());
   auto test_api = static_cast<TestWindowsApi*>(scoped_api_stub.stub());
-  FlutterViewController controller(100, 100, project);
+  FlutterViewController controller("", 100, 100, "",
+                                   std::vector<std::string>{});
   EXPECT_NE(controller.view(), nullptr);
 }
 

@@ -489,7 +489,6 @@ public class FlutterFragmentActivity extends FragmentActivity
   @Override
   public void onRequestPermissionsResult(
       int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-    super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     flutterFragment.onRequestPermissionsResult(requestCode, permissions, grantResults);
   }
 

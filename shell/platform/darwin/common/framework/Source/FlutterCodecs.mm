@@ -13,8 +13,7 @@
   return _sharedInstance;
 }
 
-- (NSData*)encode:(id)message {
-  NSAssert(!message || [message isKindOfClass:[NSData class]], @"");
+- (NSData*)encode:(NSData*)message {
   return message;
 }
 
@@ -32,12 +31,10 @@
   return _sharedInstance;
 }
 
-- (NSData*)encode:(id)message {
+- (NSData*)encode:(NSString*)message {
   if (message == nil)
     return nil;
-  NSAssert([message isKindOfClass:[NSString class]], @"");
-  NSString* stringMessage = message;
-  const char* utf8 = stringMessage.UTF8String;
+  const char* utf8 = message.UTF8String;
   return [NSData dataWithBytes:utf8 length:strlen(utf8)];
 }
 

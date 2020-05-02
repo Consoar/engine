@@ -20,7 +20,6 @@
 #include "lib/fidl/cpp/binding.h"
 #include "lib/ui/scenic/cpp/id.h"
 
-#include "flutter_runner_product_configuration.h"
 #include "surface.h"
 
 namespace flutter_runner {
@@ -54,8 +53,7 @@ class PlatformView final : public flutter::PlatformView,
                OnMetricsUpdate session_metrics_did_change_callback,
                OnSizeChangeHint session_size_change_hint_callback,
                OnEnableWireframe wireframe_enabled_callback,
-               zx_handle_t vsync_event_handle,
-               FlutterRunnerProductConfiguration product_config);
+               zx_handle_t vsync_event_handle);
   PlatformView(flutter::PlatformView::Delegate& delegate,
                std::string debug_label,
                flutter::TaskRunners task_runners,
@@ -111,13 +109,7 @@ class PlatformView final : public flutter::PlatformView,
       fit::function<void(
           fml::RefPtr<flutter::PlatformMessage> /* message */)> /* handler */>
       platform_message_handlers_;
-  // These are the channels that aren't registered and have been notified as
-  // such. Notifying via logs multiple times results in log-spam. See:
-  // https://github.com/flutter/flutter/issues/55966
-  std::set<std::string /* channel */> unregistered_channels_;
   zx_handle_t vsync_event_handle_ = 0;
-
-  FlutterRunnerProductConfiguration product_config_;
 
   void RegisterPlatformMessageHandlers();
 

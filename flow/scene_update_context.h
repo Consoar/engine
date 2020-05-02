@@ -5,7 +5,6 @@
 #ifndef FLUTTER_FLOW_SCENE_UPDATE_CONTEXT_H_
 #define FLUTTER_FLOW_SCENE_UPDATE_CONTEXT_H_
 
-#include <cfloat>
 #include <memory>
 #include <set>
 #include <vector>
@@ -22,15 +21,6 @@
 namespace flutter {
 
 class Layer;
-
-// Scenic currently lacks an API to enable rendering of alpha channel; this only
-// happens if there is a OpacityNode higher in the tree with opacity != 1. For
-// now, clamp to a infinitesimally smaller value than 1, which does not cause
-// visual problems in practice.
-constexpr float kOneMinusEpsilon = 1 - FLT_EPSILON;
-
-// How much layers are separated in Scenic z elevation.
-constexpr float kScenicZElevationBetweenLayers = 10.f;
 
 class SceneUpdateContext {
  public:
@@ -69,7 +59,7 @@ class SceneUpdateContext {
     // Query a retained entity node (owned by a retained surface) for retained
     // rendering.
     virtual bool HasRetainedNode(const LayerRasterCacheKey& key) const = 0;
-    virtual scenic::EntityNode* GetRetainedNode(
+    virtual const scenic::EntityNode& GetRetainedNode(
         const LayerRasterCacheKey& key) = 0;
 
     virtual void SubmitSurface(
@@ -115,8 +105,8 @@ class SceneUpdateContext {
           const SkRRect& rrect,
           SkColor color,
           SkAlpha opacity,
-          std::string label,
-          float z_translation = 0.0f,
+          float local_elevation = 0.0f,
+          float parent_elevation = 0.0f,
           Layer* layer = nullptr);
     virtual ~Frame();
 
@@ -185,23 +175,8 @@ class SceneUpdateContext {
   bool HasRetainedNode(const LayerRasterCacheKey& key) const {
     return surface_producer_->HasRetainedNode(key);
   }
-  scenic::EntityNode* GetRetainedNode(const LayerRasterCacheKey& key) {
+  const scenic::EntityNode& GetRetainedNode(const LayerRasterCacheKey& key) {
     return surface_producer_->GetRetainedNode(key);
-  }
-
-  // The cumulative alpha value based on all the parent OpacityLayers.
-  void set_alphaf(float alpha) { alpha_ = alpha; }
-  float alphaf() { return alpha_; }
-
-  // The global scenic elevation at a given point in the traversal.
-  float scenic_elevation() { return scenic_elevation_; }
-
-  void set_scenic_elevation(float elevation) { scenic_elevation_ = elevation; }
-
-  float GetGlobalElevationForNextScenicLayer() {
-    float elevation = topmost_global_scenic_elevation_;
-    topmost_global_scenic_elevation_ += kScenicZElevationBetweenLayers;
-    return elevation;
   }
 
  private:
@@ -260,10 +235,6 @@ class SceneUpdateContext {
   float frame_physical_depth_ = 0.0f;
   float frame_device_pixel_ratio_ =
       1.0f;  // Ratio between logical and physical pixels.
-
-  float alpha_ = 1.0f;
-  float scenic_elevation_ = 0.f;
-  float topmost_global_scenic_elevation_ = kScenicZElevationBetweenLayers;
 
   std::vector<PaintTask> paint_tasks_;
 

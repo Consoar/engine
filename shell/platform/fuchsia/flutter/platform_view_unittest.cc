@@ -110,8 +110,7 @@ TEST_F(PlatformViewTests, ChangesAccessibilitySettings) {
       nullptr,  // session_metrics_did_change_callback
       nullptr,  // session_size_change_hint_callback
       nullptr,  // on_enable_wireframe_callback,
-      0u,       // vsync_event_handle
-      {}        // product_config
+      0u        // vsync_event_handle
   );
 
   RunLoopUntilIdle();
@@ -163,8 +162,7 @@ TEST_F(PlatformViewTests, EnableWireframeTest) {
       nullptr,                  // session_metrics_did_change_callback
       nullptr,                  // session_size_change_hint_callback
       EnableWireframeCallback,  // on_enable_wireframe_callback,
-      0u,                       // vsync_event_handle
-      {}                        // product_config
+      0u                        // vsync_event_handle
   );
 
   // Cast platform_view to its base view so we can have access to the public

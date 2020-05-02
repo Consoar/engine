@@ -15,9 +15,6 @@ Win32FlutterWindow::Win32FlutterWindow(int width, int height) {
 
 Win32FlutterWindow::~Win32FlutterWindow() {
   DestroyRenderSurface();
-  if (plugin_registrar_ && plugin_registrar_->destruction_handler) {
-    plugin_registrar_->destruction_handler(plugin_registrar_.get());
-  }
 }
 
 FlutterDesktopViewControllerRef Win32FlutterWindow::CreateWin32FlutterWindow(
@@ -161,18 +158,15 @@ void Win32FlutterWindow::OnPointerLeave() {
   }
 }
 
-void Win32FlutterWindow::OnText(const std::u16string& text) {
+void Win32FlutterWindow::OnChar(char32_t code_point) {
   if (process_events_) {
-    SendText(text);
+    SendChar(code_point);
   }
 }
 
-void Win32FlutterWindow::OnKey(int key,
-                               int scancode,
-                               int action,
-                               char32_t character) {
+void Win32FlutterWindow::OnKey(int key, int scancode, int action, int mods) {
   if (process_events_) {
-    SendKey(key, scancode, action, character);
+    SendKey(key, scancode, action, 0);
   }
 }
 
@@ -264,18 +258,15 @@ void Win32FlutterWindow::SendPointerLeave() {
   SendPointerEventWithData(event);
 }
 
-void Win32FlutterWindow::SendText(const std::u16string& text) {
+void Win32FlutterWindow::SendChar(char32_t code_point) {
   for (const auto& handler : keyboard_hook_handlers_) {
-    handler->TextHook(this, text);
+    handler->CharHook(this, code_point);
   }
 }
 
-void Win32FlutterWindow::SendKey(int key,
-                                 int scancode,
-                                 int action,
-                                 char32_t character) {
+void Win32FlutterWindow::SendKey(int key, int scancode, int action, int mods) {
   for (const auto& handler : keyboard_hook_handlers_) {
-    handler->KeyboardHook(this, key, scancode, action, character);
+    handler->KeyboardHook(this, key, scancode, action, mods);
   }
 }
 

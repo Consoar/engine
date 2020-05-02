@@ -7,12 +7,12 @@ import 'dart:html';
 import 'dart:js_util' as js_util;
 import 'dart:typed_data';
 
+import 'package:ui/ui.dart' as ui;
 import 'package:ui/src/engine.dart' hide window;
 
 import 'package:test/test.dart';
 
 import 'matchers.dart';
-import 'spy.dart';
 
 /// The `keyCode` of the "Enter" key.
 const int _kReturnKeyCode = 13;
@@ -560,7 +560,7 @@ void main() {
 
     /// Emulates sending of a message by the framework to the engine.
     void sendFrameworkMessage(dynamic message) {
-      textEditing.channel.handleTextInput(message, (ByteData data) {});
+      textEditing.channel.handleTextInput(message);
     }
 
     /// Sends the necessary platform messages to activate a text field and show
@@ -597,11 +597,11 @@ void main() {
 
     setUp(() {
       textEditing = HybridTextEditing();
-      spy.setUp();
+      spy.activate();
     });
 
     tearDown(() {
-      spy.tearDown();
+      spy.deactivate();
       if (textEditing.isEditing) {
         textEditing.stopEditing();
       }
@@ -699,15 +699,15 @@ void main() {
       textEditing.editingElement.domElement.blur();
 
       expect(spy.messages, hasLength(1));
-      expect(spy.messages[0].channel, 'flutter/textinput');
-      expect(spy.messages[0].methodName, 'TextInputClient.onConnectionClosed');
+      MethodCall call = spy.messages[0];
+      spy.messages.clear();
+      expect(call.method, 'TextInputClient.onConnectionClosed');
       expect(
-        spy.messages[0].methodArguments,
+        call.arguments,
         <dynamic>[
           123, // Client ID
         ],
       );
-      spy.messages.clear();
       // Input element is removed from DOM.
       expect(document.getElementsByTagName('input'), hasLength(0));
     },
@@ -998,10 +998,11 @@ void main() {
       input.dispatchEvent(Event.eventType('Event', 'input'));
 
       expect(spy.messages, hasLength(1));
-      expect(spy.messages[0].channel, 'flutter/textinput');
-      expect(spy.messages[0].methodName, 'TextInputClient.updateEditingState');
+      MethodCall call = spy.messages[0];
+      spy.messages.clear();
+      expect(call.method, 'TextInputClient.updateEditingState');
       expect(
-        spy.messages[0].methodArguments,
+        call.arguments,
         <dynamic>[
           123, // Client ID
           <String, dynamic>{
@@ -1011,7 +1012,6 @@ void main() {
           }
         ],
       );
-      spy.messages.clear();
 
       input.setSelectionRange(2, 5);
       if (browserEngine == BrowserEngine.firefox) {
@@ -1022,10 +1022,11 @@ void main() {
       }
 
       expect(spy.messages, hasLength(1));
-      expect(spy.messages[0].channel, 'flutter/textinput');
-      expect(spy.messages[0].methodName, 'TextInputClient.updateEditingState');
+      call = spy.messages[0];
+      spy.messages.clear();
+      expect(call.method, 'TextInputClient.updateEditingState');
       expect(
-        spy.messages[0].methodArguments,
+        call.arguments,
         <dynamic>[
           123, // Client ID
           <String, dynamic>{
@@ -1035,7 +1036,6 @@ void main() {
           }
         ],
       );
-      spy.messages.clear();
 
       hideKeyboard();
     });
@@ -1078,35 +1078,20 @@ void main() {
       // Two messages should've been sent. One for the 'input' event and one for
       // the 'selectionchange' event.
       expect(spy.messages, hasLength(2));
-
-      expect(spy.messages[0].channel, 'flutter/textinput');
-      expect(spy.messages[0].methodName, 'TextInputClient.updateEditingState');
+      final MethodCall call = spy.messages.last;
+      spy.messages.clear();
+      expect(call.method, 'TextInputClient.updateEditingState');
       expect(
-        spy.messages[0].methodArguments,
-        <dynamic>[
-          123, // Client ID
-          <String, dynamic>{
-            'text': 'something\nelse',
-            'selectionBase': 14,
-            'selectionExtent': 14,
-          }
-        ],
-      );
-
-      expect(spy.messages[1].channel, 'flutter/textinput');
-      expect(spy.messages[1].methodName, 'TextInputClient.updateEditingState');
-      expect(
-        spy.messages[1].methodArguments,
+        call.arguments,
         <dynamic>[
           123, // Client ID
           <String, dynamic>{
             'text': 'something\nelse',
             'selectionBase': 2,
-            'selectionExtent': 5,
+            'selectionExtent': 5
           }
         ],
       );
-      spy.messages.clear();
 
       const MethodCall hide = MethodCall('TextInput.hide');
       sendFrameworkMessage(codec.encodeMethodCall(hide));
@@ -1186,10 +1171,10 @@ void main() {
       );
 
       expect(spy.messages, hasLength(1));
-      expect(spy.messages[0].channel, 'flutter/textinput');
-      expect(spy.messages[0].methodName, 'TextInputClient.performAction');
+      final MethodCall call = spy.messages.first;
+      expect(call.method, 'TextInputClient.performAction');
       expect(
-        spy.messages[0].methodArguments,
+        call.arguments,
         <dynamic>[clientId, 'TextInputAction.next'],
       );
     },
@@ -1397,6 +1382,30 @@ void checkTextAreaEditingState(
   expect(textarea.value, text);
   expect(textarea.selectionStart, start);
   expect(textarea.selectionEnd, end);
+}
+
+class PlatformMessagesSpy {
+  bool _isActive = false;
+  ui.PlatformMessageCallback _backup;
+
+  final List<MethodCall> messages = <MethodCall>[];
+
+  void activate() {
+    assert(!_isActive);
+    _isActive = true;
+    _backup = ui.window.onPlatformMessage;
+    ui.window.onPlatformMessage = (String channel, ByteData data,
+        ui.PlatformMessageResponseCallback callback) {
+      messages.add(codec.decodeMethodCall(data));
+    };
+  }
+
+  void deactivate() {
+    assert(_isActive);
+    _isActive = false;
+    messages.clear();
+    ui.window.onPlatformMessage = _backup;
+  }
 }
 
 Map<String, dynamic> createFlutterConfig(

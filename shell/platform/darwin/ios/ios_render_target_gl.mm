@@ -70,11 +70,7 @@ IOSRenderTargetGL::~IOSRenderTargetGL() {
   glDeleteRenderbuffers(1, &colorbuffer_);
 
   FML_DCHECK(glGetError() == GL_NO_ERROR);
-  if (context == context_.get()) {
-    [EAGLContext setCurrentContext:nil];
-  } else {
-    [EAGLContext setCurrentContext:context];
-  }
+  [EAGLContext setCurrentContext:context];
 }
 
 // |IOSRenderTarget|

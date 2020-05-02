@@ -714,7 +714,7 @@ class SemanticsUpdateBuilder {
       increasedValue: increasedValue,
       decreasedValue: decreasedValue,
       textDirection: textDirection,
-      transform: engine.toMatrix32(transform),
+      transform: transform,
       elevation: elevation,
       thickness: thickness,
       childrenInTraversalOrder: childrenInTraversalOrder,
