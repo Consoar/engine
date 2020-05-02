@@ -460,10 +460,10 @@ class Canvas {
     if (matrix4.length != 16) {
       throw ArgumentError('"matrix4" must have 16 entries.');
     }
-    _transform(matrix4);
+    _transform(engine.toMatrix32(matrix4));
   }
 
-  void _transform(Float64List matrix4) {
+  void _transform(Float32List matrix4) {
     _canvas.transform(matrix4);
   }
 
@@ -963,7 +963,9 @@ class Canvas {
   }
 
   void drawVertices(Vertices vertices, BlendMode blendMode, Paint paint) {
-    if (vertices == null) return;
+    if (vertices == null) {
+      return;
+    }
     //assert(vertices != null); // vertices is checked on the engine side
     assert(paint != null);
     assert(blendMode != null);

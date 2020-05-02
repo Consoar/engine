@@ -26,7 +26,9 @@ void RasterCacheResult::draw(SkCanvas& canvas, const SkPaint* paint) const {
   SkAutoCanvasRestore auto_restore(&canvas, true);
   SkIRect bounds =
       RasterCache::GetDeviceBounds(logical_rect_, canvas.getTotalMatrix());
-  FML_DCHECK(bounds.size() == image_->dimensions());
+  FML_DCHECK(
+      std::abs(bounds.size().width() - image_->dimensions().width()) <= 1 &&
+      std::abs(bounds.size().height() - image_->dimensions().height()) <= 1);
   canvas.resetMatrix();
   canvas.drawImage(image_, bounds.fLeft, bounds.fTop, paint);
 }
@@ -208,33 +210,44 @@ bool RasterCache::Prepare(GrContext* context,
   return true;
 }
 
-RasterCacheResult RasterCache::Get(const SkPicture& picture,
-                                   const SkMatrix& ctm) const {
-  PictureRasterCacheKey cache_key(picture.uniqueID(), ctm);
+bool RasterCache::Draw(const SkPicture& picture, SkCanvas& canvas) const {
+  PictureRasterCacheKey cache_key(picture.uniqueID(), canvas.getTotalMatrix());
   auto it = picture_cache_.find(cache_key);
   if (it == picture_cache_.end()) {
-    return RasterCacheResult();
+    return false;
   }
 
   Entry& entry = it->second;
   entry.access_count++;
   entry.used_this_frame = true;
 
-  return entry.image;
+  if (entry.image.is_valid()) {
+    entry.image.draw(canvas);
+    return true;
+  }
+
+  return false;
 }
 
-RasterCacheResult RasterCache::Get(Layer* layer, const SkMatrix& ctm) const {
-  LayerRasterCacheKey cache_key(layer->unique_id(), ctm);
+bool RasterCache::Draw(const Layer* layer,
+                       SkCanvas& canvas,
+                       SkPaint* paint) const {
+  LayerRasterCacheKey cache_key(layer->unique_id(), canvas.getTotalMatrix());
   auto it = layer_cache_.find(cache_key);
   if (it == layer_cache_.end()) {
-    return RasterCacheResult();
+    return false;
   }
 
   Entry& entry = it->second;
   entry.access_count++;
   entry.used_this_frame = true;
 
-  return entry.image;
+  if (entry.image.is_valid()) {
+    entry.image.draw(canvas, paint);
+    return true;
+  }
+
+  return false;
 }
 
 void RasterCache::SweepAfterFrame() {

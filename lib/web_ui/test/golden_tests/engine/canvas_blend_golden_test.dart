@@ -23,7 +23,8 @@ void main() async {
        double maxDiffRatePercent = 0.0}) async {
     final EngineCanvas engineCanvas = BitmapCanvas(screenRect);
 
-    rc.apply(engineCanvas);
+    rc.endRecording();
+    rc.apply(engineCanvas, screenRect);
 
     // Wrap in <flt-scene> so that our CSS selectors kick in.
     final html.Element sceneElement = html.Element.tag('flt-scene');
@@ -135,6 +136,6 @@ HtmlImage createTestImage() {
   ctx.fillRect(66, 0, 33, 50);
   ctx.fill();
   html.ImageElement imageElement = html.ImageElement();
-  imageElement.src = js_util.callMethod(canvas, 'toDataURL', []);
+  imageElement.src = js_util.callMethod(canvas, 'toDataURL', <dynamic>[]);
   return HtmlImage(imageElement, width, height);
 }
