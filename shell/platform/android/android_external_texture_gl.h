@@ -6,7 +6,8 @@
 #define FLUTTER_SHELL_PLATFORM_ANDROID_EXTERNAL_TEXTURE_GL_H_
 
 #include <GLES/gl.h>
-#include "flutter/flow/texture.h"
+
+#include "flutter/common/graphics/texture.h"
 #include "flutter/fml/platform/android/jni_weak_ref.h"
 #include "flutter/shell/platform/android/platform_view_android_jni_impl.h"
 
@@ -24,8 +25,8 @@ class AndroidExternalTextureGL : public flutter::Texture {
   void Paint(SkCanvas& canvas,
              const SkRect& bounds,
              bool freeze,
-             GrContext* context,
-             SkFilterQuality filter_quality) override;
+             GrDirectContext* context,
+             const SkSamplingOptions& sampling) override;
 
   void OnGrContextCreated() override;
 

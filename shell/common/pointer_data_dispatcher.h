@@ -23,7 +23,7 @@ class PointerDataDispatcher;
 /// delivered packets, and dispatches them in sync with the VSYNC signal.
 ///
 /// This object will be owned by the engine because it relies on the engine's
-/// `Animator` (which owns `VsyncWaiter`) and `RuntomeController` to do the
+/// `Animator` (which owns `VsyncWaiter`) and `RuntimeController` to do the
 /// filtering. This object is currently designed to be only called from the UI
 /// thread (no thread safety is guaranteed).
 ///
@@ -53,14 +53,16 @@ class PointerDataDispatcher {
     ///           by `Animator::RequestFrame`).
     ///
     ///           Like the callback in `AsyncWaitForVsync`, this callback is
-    ///           only scheduled to be called once, and it will be called in the
-    ///           UI thread. If there is no AsyncWaitForVsync callback
-    ///           (`Animator::RequestFrame` is not called), this secondary
-    ///           callback will still be executed at vsync.
+    ///           only scheduled to be called once per |id|, and it will be
+    ///           called in the UI thread. If there is no AsyncWaitForVsync
+    ///           callback (`Animator::RequestFrame` is not called), this
+    ///           secondary callback will still be executed at vsync.
     ///
     ///           This callback is used to provide the vsync signal needed by
-    ///           `SmoothPointerDataDispatcher`.
+    ///           `SmoothPointerDataDispatcher`, and for `Animator` input flow
+    ///           events.
     virtual void ScheduleSecondaryVsyncCallback(
+        uintptr_t id,
         const fml::closure& callback) = 0;
   };
 

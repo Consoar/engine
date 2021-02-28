@@ -5,10 +5,12 @@
 // @dart = 2.6
 @TestOn('chrome || firefox')
 
+import 'package:test/bootstrap/browser.dart';
+import 'package:test/test.dart';
+
 import 'package:ui/ui.dart' as ui;
 import 'package:ui/src/engine.dart';
 
-import 'package:test/test.dart';
 
 final ui.ParagraphStyle ahemStyle = ui.ParagraphStyle(
   fontFamily: 'ahem',
@@ -18,9 +20,9 @@ const ui.ParagraphConstraints constraints = ui.ParagraphConstraints(width: 50);
 const ui.ParagraphConstraints infiniteConstraints =
     ui.ParagraphConstraints(width: double.infinity);
 
-ui.Paragraph build(ui.ParagraphStyle style, String text,
+DomParagraph build(ui.ParagraphStyle style, String text,
     {ui.TextStyle textStyle}) {
-  final ui.ParagraphBuilder builder = ui.ParagraphBuilder(style);
+  final DomParagraphBuilder builder = DomParagraphBuilder(style);
   if (textStyle != null) {
     builder.pushStyle(textStyle);
   }
@@ -38,17 +40,34 @@ void testMeasurements(String description, MeasurementTestBody body, {
 }) {
   test(
     '$description (dom)',
-    () => body(TextMeasurementService.domInstance),
+    () {
+      try {
+        WebExperiments.instance.useCanvasRichText = false;
+        return body(TextMeasurementService.domInstance);
+      } finally {
+        WebExperiments.instance.useCanvasRichText = null;
+      }
+    },
     skip: skipDom,
   );
   test(
     '$description (canvas)',
-    () => body(TextMeasurementService.canvasInstance),
+    () {
+      try {
+        WebExperiments.instance.useCanvasRichText = false;
+        return body(TextMeasurementService.canvasInstance);
+      } finally {
+        WebExperiments.instance.useCanvasRichText = null;
+      }
+    },
     skip: skipCanvas,
   );
 }
+void main() {
+  internalBootstrapBrowserTest(() => testMain);
+}
 
-void main() async {
+void testMain()  async {
   await ui.webOnlyInitializeTestDomRenderer();
 
   group('$RulerManager', () {
@@ -59,8 +78,8 @@ void main() async {
     final ui.ParagraphStyle s3 = ui.ParagraphStyle(fontSize: 22.0);
 
     ParagraphGeometricStyle style1, style2, style3;
-    EngineParagraph style1Text1, style1Text2; // two paragraphs sharing style
-    EngineParagraph style2Text1, style3Text3;
+    DomParagraph style1Text1, style1Text2; // two paragraphs sharing style
+    DomParagraph style2Text1, style3Text3;
 
     setUp(() {
       style1Text1 = build(s1, '1');
@@ -249,6 +268,7 @@ void main() async {
 
         // Should fit on a single line.
         expect(result.isSingleLine, true);
+        expect(result.alphabeticBaseline, 8);
         expect(result.maxIntrinsicWidth, 50);
         expect(result.minIntrinsicWidth, 50);
         expect(result.width, 50);
@@ -269,6 +289,7 @@ void main() async {
         // The long text doesn't fit in 70px of width, so it needs to wrap.
         result = instance.measure(build(ahemStyle, 'foo bar baz'), constraints);
         expect(result.isSingleLine, false);
+        expect(result.alphabeticBaseline, 8);
         expect(result.maxIntrinsicWidth, 110);
         expect(result.minIntrinsicWidth, 30);
         expect(result.width, 70);
@@ -294,6 +315,7 @@ void main() async {
         // The long text doesn't fit in 50px of width, so it needs to wrap.
         result = instance.measure(build(ahemStyle, '1234567890'), constraints);
         expect(result.isSingleLine, false);
+        expect(result.alphabeticBaseline, 8);
         expect(result.maxIntrinsicWidth, 100);
         expect(result.minIntrinsicWidth, 100);
         expect(result.width, 50);
@@ -313,6 +335,7 @@ void main() async {
         result =
             instance.measure(build(ahemStyle, 'abcdefghijk lm'), constraints);
         expect(result.isSingleLine, false);
+        expect(result.alphabeticBaseline, 8);
         expect(result.maxIntrinsicWidth, 140);
         expect(result.minIntrinsicWidth, 110);
         expect(result.width, 50);
@@ -335,6 +358,7 @@ void main() async {
             ui.ParagraphConstraints(width: 8);
         result = instance.measure(build(ahemStyle, 'AA'), narrowConstraints);
         expect(result.isSingleLine, false);
+        expect(result.alphabeticBaseline, 8);
         expect(result.maxIntrinsicWidth, 20);
         expect(result.minIntrinsicWidth, 20);
         expect(result.width, 8);
@@ -353,6 +377,7 @@ void main() async {
         // Extremely narrow constraints with new line in the middle.
         result = instance.measure(build(ahemStyle, 'AA\nA'), narrowConstraints);
         expect(result.isSingleLine, false);
+        expect(result.alphabeticBaseline, 8);
         expect(result.maxIntrinsicWidth, 20);
         expect(result.minIntrinsicWidth, 20);
         expect(result.width, 8);
@@ -372,6 +397,7 @@ void main() async {
         // Extremely narrow constraints with new line in the end.
         result = instance.measure(build(ahemStyle, 'AAA\n'), narrowConstraints);
         expect(result.isSingleLine, false);
+        expect(result.alphabeticBaseline, 8);
         expect(result.maxIntrinsicWidth, 30);
         expect(result.minIntrinsicWidth, 30);
         expect(result.width, 8);
@@ -476,7 +502,7 @@ void main() async {
     testMeasurements(
       'wraps multi-line text correctly when constraint width is infinite',
       (TextMeasurementService instance) {
-        final EngineParagraph paragraph = build(ahemStyle, '123\n456 789');
+        final DomParagraph paragraph = build(ahemStyle, '123\n456 789');
         final MeasurementResult result =
             instance.measure(paragraph, infiniteConstraints);
 
@@ -520,14 +546,9 @@ void main() async {
       const ui.ParagraphConstraints constraints =
           ui.ParagraphConstraints(width: 100);
 
-      final ui.ParagraphBuilder normalBuilder = ui.ParagraphBuilder(ahemStyle);
-      normalBuilder.addText('a b c');
-      final ui.Paragraph normalText = normalBuilder.build();
-
-      final ui.ParagraphBuilder spacedBuilder = ui.ParagraphBuilder(ahemStyle);
-      spacedBuilder.pushStyle(ui.TextStyle(wordSpacing: 1.5));
-      spacedBuilder.addText('a b c');
-      final ui.Paragraph spacedText = spacedBuilder.build();
+      final DomParagraph normalText = build(ahemStyle, 'a b c');
+      final DomParagraph spacedText =
+          build(ahemStyle, 'a b c', textStyle: ui.TextStyle(wordSpacing: 1.5));
 
       // Word spacing is only supported via DOM measurement.
       final TextMeasurementService instance =
@@ -1157,5 +1178,6 @@ EngineLineMetrics line(
     lineNumber: lineNumber,
     left: left,
     endIndexWithoutNewlines: -1,
+    widthWithTrailingSpaces: width,
   );
 }

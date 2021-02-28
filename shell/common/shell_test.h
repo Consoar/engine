@@ -5,17 +5,18 @@
 #ifndef FLUTTER_SHELL_COMMON_SHELL_TEST_H_
 #define FLUTTER_SHELL_COMMON_SHELL_TEST_H_
 
+#include "flutter/shell/common/shell.h"
+
 #include <memory>
 
+#include "flutter/common/graphics/persistent_cache.h"
 #include "flutter/common/settings.h"
 #include "flutter/flow/layers/container_layer.h"
 #include "flutter/fml/build_config.h"
 #include "flutter/fml/macros.h"
 #include "flutter/fml/time/time_point.h"
 #include "flutter/lib/ui/window/platform_message.h"
-#include "flutter/shell/common/persistent_cache.h"
 #include "flutter/shell/common/run_configuration.h"
-#include "flutter/shell/common/shell.h"
 #include "flutter/shell/common/shell_test_external_view_embedder.h"
 #include "flutter/shell/common/thread_host.h"
 #include "flutter/shell/common/vsync_waiters_test.h"
@@ -38,7 +39,8 @@ class ShellTest : public FixtureTest {
       TaskRunners task_runners,
       bool simulate_vsync = false,
       std::shared_ptr<ShellTestExternalViewEmbedder>
-          shell_test_external_view_embedder = nullptr);
+          shell_test_external_view_embedder = nullptr,
+      bool is_gpu_disabled = false);
   void DestroyShell(std::unique_ptr<Shell> shell);
   void DestroyShell(std::unique_ptr<Shell> shell, TaskRunners task_runners);
   TaskRunners GetTaskRunnersForFixture();
@@ -50,6 +52,8 @@ class ShellTest : public FixtureTest {
 
   static void PlatformViewNotifyCreated(
       Shell* shell);  // This creates the surface
+  static void PlatformViewNotifyDestroyed(
+      Shell* shell);  // This destroys the surface
   static void RunEngine(Shell* shell, RunConfiguration configuration);
   static void RestartEngine(Shell* shell, RunConfiguration configuration);
 
@@ -61,6 +65,10 @@ class ShellTest : public FixtureTest {
   /// in PumpOneFrame.
   using LayerTreeBuilder =
       std::function<void(std::shared_ptr<ContainerLayer> root)>;
+
+  static void SetViewportMetrics(Shell* shell, double width, double height);
+  static void NotifyIdle(Shell* shell, int64_t deadline);
+
   static void PumpOneFrame(Shell* shell,
                            double width = 1,
                            double height = 1,
@@ -78,8 +86,16 @@ class ShellTest : public FixtureTest {
   static bool GetNeedsReportTimings(Shell* shell);
   static void SetNeedsReportTimings(Shell* shell, bool value);
 
+  // Declare |StorePersistentCache| inside |ShellTest| so |PersistentCache| can
+  // friend |ShellTest| and allow us to call private |PersistentCache::store| in
+  // unit tests.
+  static void StorePersistentCache(PersistentCache* cache,
+                                   const SkData& key,
+                                   const SkData& value);
+
   enum ServiceProtocolEnum {
     kGetSkSLs,
+    kEstimateRasterCacheMemory,
     kSetAssetBundlePath,
     kRunInView,
   };
@@ -92,7 +108,7 @@ class ShellTest : public FixtureTest {
       ServiceProtocolEnum some_protocol,
       fml::RefPtr<fml::TaskRunner> task_runner,
       const ServiceProtocol::Handler::ServiceProtocolMap& params,
-      rapidjson::Document& response);
+      rapidjson::Document* response);
 
   std::shared_ptr<txt::FontCollection> GetFontCollection(Shell* shell);
 

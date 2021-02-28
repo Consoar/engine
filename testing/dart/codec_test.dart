@@ -30,8 +30,20 @@ void main() {
     final Uint8List data = Uint8List.fromList(<int>[1, 2, 3]);
     expect(
       () => ui.instantiateImageCodec(data),
-      throwsA(exceptionWithMessage('Could not instantiate image codec.'))
+      throwsA(exceptionWithMessage('Invalid image data'))
     );
+  });
+
+  test('getNextFrame fails with invalid data', () async {
+    Uint8List data = await _getSkiaResource('flutter_logo.jpg').readAsBytes();
+    data = Uint8List.view(data.buffer, 0, 4000);
+    final ui.Codec codec = await ui.instantiateImageCodec(data);
+    try {
+      await codec.getNextFrame();
+      fail('exception not thrown');
+    } catch(e) {
+      expect(e, exceptionWithMessage('Codec failed'));
+    }
   });
 
   test('nextFrame', () async {

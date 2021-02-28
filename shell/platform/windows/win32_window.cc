@@ -4,6 +4,10 @@
 
 #include "flutter/shell/platform/windows/win32_window.h"
 
+#include <imm.h>
+
+#include <cstring>
+
 #include "win32_dpi_utils.h"
 
 namespace flutter {
@@ -89,8 +93,9 @@ LRESULT CALLBACK Win32Window::WndProc(HWND const window,
 
     auto that = static_cast<Win32Window*>(cs->lpCreateParams);
     that->window_handle_ = window;
+    that->text_input_manager_.SetWindowHandle(window);
   } else if (Win32Window* that = GetThisFromHandle(window)) {
-    return that->MessageHandler(window, message, wparam, lparam);
+    return that->HandleMessage(message, wparam, lparam);
   }
 
   return DefWindowProc(window, message, wparam, lparam);
@@ -107,170 +112,291 @@ void Win32Window::TrackMouseLeaveEvent(HWND hwnd) {
   }
 }
 
+void Win32Window::OnImeSetContext(UINT const message,
+                                  WPARAM const wparam,
+                                  LPARAM const lparam) {
+  if (wparam != 0) {
+    text_input_manager_.CreateImeWindow();
+  }
+}
+
+void Win32Window::OnImeStartComposition(UINT const message,
+                                        WPARAM const wparam,
+                                        LPARAM const lparam) {
+  text_input_manager_.CreateImeWindow();
+  OnComposeBegin();
+}
+
+void Win32Window::OnImeComposition(UINT const message,
+                                   WPARAM const wparam,
+                                   LPARAM const lparam) {
+  // Update the IME window position.
+  text_input_manager_.UpdateImeWindow();
+
+  if (lparam & GCS_COMPSTR) {
+    // Read the in-progress composing string.
+    long pos = text_input_manager_.GetComposingCursorPosition();
+    std::optional<std::u16string> text =
+        text_input_manager_.GetComposingString();
+    if (text) {
+      OnComposeChange(text.value(), pos);
+    }
+  } else if (lparam & GCS_RESULTSTR) {
+    // Read the committed composing string.
+    long pos = text_input_manager_.GetComposingCursorPosition();
+    std::optional<std::u16string> text = text_input_manager_.GetResultString();
+    if (text) {
+      OnComposeChange(text.value(), pos);
+    }
+    // Next, try reading the composing string. Some Japanese IMEs send a message
+    // containing both a GCS_RESULTSTR and a GCS_COMPSTR when one composition is
+    // committed and another immediately started.
+    text = text_input_manager_.GetResultString();
+    if (text) {
+      OnComposeChange(text.value(), pos);
+    }
+  }
+}
+
+void Win32Window::OnImeEndComposition(UINT const message,
+                                      WPARAM const wparam,
+                                      LPARAM const lparam) {
+  text_input_manager_.DestroyImeWindow();
+  OnComposeEnd();
+}
+
+void Win32Window::OnImeRequest(UINT const message,
+                               WPARAM const wparam,
+                               LPARAM const lparam) {
+  // TODO(cbracken): Handle IMR_RECONVERTSTRING, IMR_DOCUMENTFEED,
+  // and IMR_QUERYCHARPOSITION messages.
+  // https://github.com/flutter/flutter/issues/74547
+}
+
+void Win32Window::UpdateCursorRect(const Rect& rect) {
+  text_input_manager_.UpdateCaretRect(rect);
+}
+
 LRESULT
-Win32Window::MessageHandler(HWND hwnd,
-                            UINT const message,
-                            WPARAM const wparam,
-                            LPARAM const lparam) noexcept {
+Win32Window::HandleMessage(UINT const message,
+                           WPARAM const wparam,
+                           LPARAM const lparam) noexcept {
+  LPARAM result_lparam = lparam;
   int xPos = 0, yPos = 0;
   UINT width = 0, height = 0;
-  auto window =
-      reinterpret_cast<Win32Window*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
   UINT button_pressed = 0;
 
-  if (window != nullptr) {
-    switch (message) {
-      case kWmDpiChangedBeforeParent:
-        current_dpi_ = GetDpiForHWND(window_handle_);
-        window->OnDpiScale(current_dpi_);
-        return 0;
-      case WM_SIZE:
-        width = LOWORD(lparam);
-        height = HIWORD(lparam);
+  switch (message) {
+    case kWmDpiChangedBeforeParent:
+      current_dpi_ = GetDpiForHWND(window_handle_);
+      OnDpiScale(current_dpi_);
+      return 0;
+    case WM_SIZE:
+      width = LOWORD(lparam);
+      height = HIWORD(lparam);
 
-        current_width_ = width;
-        current_height_ = height;
-        window->HandleResize(width, height);
-        break;
-      case WM_FONTCHANGE:
-        window->OnFontChange();
-        break;
-      case WM_MOUSEMOVE:
-        window->TrackMouseLeaveEvent(hwnd);
+      current_width_ = width;
+      current_height_ = height;
+      HandleResize(width, height);
+      break;
+    case WM_MOUSEMOVE:
+      TrackMouseLeaveEvent(window_handle_);
 
-        xPos = GET_X_LPARAM(lparam);
-        yPos = GET_Y_LPARAM(lparam);
-        window->OnPointerMove(static_cast<double>(xPos),
-                              static_cast<double>(yPos));
-        break;
-      case WM_MOUSELEAVE:;
-        window->OnPointerLeave();
-        // Once the tracked event is received, the TrackMouseEvent function
-        // resets. Set to false to make sure it's called once mouse movement is
-        // detected again.
-        tracking_mouse_leave_ = false;
-        break;
-      case WM_LBUTTONDOWN:
-      case WM_RBUTTONDOWN:
-      case WM_MBUTTONDOWN:
-      case WM_XBUTTONDOWN:
-        if (message == WM_LBUTTONDOWN) {
-          // Capture the pointer in case the user drags outside the client area.
-          // In this case, the "mouse leave" event is delayed until the user
-          // releases the button. It's only activated on left click given that
-          // it's more common for apps to handle dragging with only the left
-          // button.
-          SetCapture(hwnd);
-        }
-        button_pressed = message;
-        if (message == WM_XBUTTONDOWN) {
-          button_pressed = GET_XBUTTON_WPARAM(wparam);
-        }
-        xPos = GET_X_LPARAM(lparam);
-        yPos = GET_Y_LPARAM(lparam);
-        window->OnPointerDown(static_cast<double>(xPos),
-                              static_cast<double>(yPos), button_pressed);
-        break;
-      case WM_LBUTTONUP:
-      case WM_RBUTTONUP:
-      case WM_MBUTTONUP:
-      case WM_XBUTTONUP:
-        if (message == WM_LBUTTONUP) {
-          ReleaseCapture();
-        }
-        button_pressed = message;
-        if (message == WM_XBUTTONUP) {
-          button_pressed = GET_XBUTTON_WPARAM(wparam);
-        }
-        xPos = GET_X_LPARAM(lparam);
-        yPos = GET_Y_LPARAM(lparam);
-        window->OnPointerUp(static_cast<double>(xPos),
-                            static_cast<double>(yPos), button_pressed);
-        break;
-      case WM_MOUSEWHEEL:
-        window->OnScroll(
-            0.0, -(static_cast<short>(HIWORD(wparam)) / (double)WHEEL_DELTA));
-        break;
-      case WM_UNICHAR: {
-        // Tell third-pary app, we can support Unicode.
-        if (wparam == UNICODE_NOCHAR)
-          return TRUE;
-        // DefWindowProc will send WM_CHAR for this WM_UNICHAR.
-        break;
+      xPos = GET_X_LPARAM(lparam);
+      yPos = GET_Y_LPARAM(lparam);
+      OnPointerMove(static_cast<double>(xPos), static_cast<double>(yPos));
+      break;
+    case WM_MOUSELEAVE:;
+      OnPointerLeave();
+      // Once the tracked event is received, the TrackMouseEvent function
+      // resets. Set to false to make sure it's called once mouse movement is
+      // detected again.
+      tracking_mouse_leave_ = false;
+      break;
+    case WM_SETCURSOR: {
+      UINT hit_test_result = LOWORD(lparam);
+      if (hit_test_result == HTCLIENT) {
+        OnSetCursor();
+        return TRUE;
       }
-      case WM_DEADCHAR:
-      case WM_SYSDEADCHAR:
-      case WM_CHAR:
-      case WM_SYSCHAR: {
-        static wchar_t s_pending_high_surrogate = 0;
-
-        wchar_t character = static_cast<wchar_t>(wparam);
-        std::u16string text({character});
-        char32_t code_point = character;
-        if (IS_HIGH_SURROGATE(character)) {
-          // Save to send later with the trailing surrogate.
-          s_pending_high_surrogate = character;
-        } else if (IS_LOW_SURROGATE(character) &&
-                   s_pending_high_surrogate != 0) {
-          text.insert(text.begin(), s_pending_high_surrogate);
-          // Merge the surrogate pairs for the key event.
-          code_point =
-              CodePointFromSurrogatePair(s_pending_high_surrogate, character);
-          s_pending_high_surrogate = 0;
-        }
-
-        // Of the messages handled here, only WM_CHAR should be treated as
-        // characters. WM_SYS*CHAR are not part of text input, and WM_DEADCHAR
-        // will be incorporated into a later WM_CHAR with the full character.
-        // Also filter out:
-        // - Lead surrogates, which like dead keys will be send once combined.
-        // - ASCII control characters, which are sent as WM_CHAR events for all
-        //   control key shortcuts.
-        if (message == WM_CHAR && s_pending_high_surrogate == 0 &&
-            character >= u' ') {
-          window->OnText(text);
-        }
-
-        // All key presses that generate a character should be sent from
-        // WM_CHAR. In order to send the full key press information, the keycode
-        // is persisted in keycode_for_char_message_ obtained from WM_KEYDOWN.
-        if (keycode_for_char_message_ != 0) {
-          const unsigned int scancode = (lparam >> 16) & 0xff;
-          window->OnKey(keycode_for_char_message_, scancode, WM_KEYDOWN,
-                        code_point);
-          keycode_for_char_message_ = 0;
-        }
-        break;
-      }
-      case WM_KEYDOWN:
-      case WM_SYSKEYDOWN:
-      case WM_KEYUP:
-      case WM_SYSKEYUP:
-        const bool is_keydown_message =
-            (message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
-        // Check if this key produces a character. If so, the key press should
-        // be sent with the character produced at WM_CHAR. Store the produced
-        // keycode (it's not accessible from WM_CHAR) to be used in WM_CHAR.
-        const unsigned int character = MapVirtualKey(wparam, MAPVK_VK_TO_CHAR);
-        if (character > 0 && is_keydown_message) {
-          keycode_for_char_message_ = wparam;
-          break;
-        }
-        unsigned int keyCode(wparam);
-        const unsigned int scancode = (lparam >> 16) & 0xff;
-        // If the key is a modifier, get its side.
-        if (keyCode == VK_SHIFT || keyCode == VK_MENU ||
-            keyCode == VK_CONTROL) {
-          keyCode = MapVirtualKey(scancode, MAPVK_VSC_TO_VK_EX);
-        }
-        const int action = is_keydown_message ? WM_KEYDOWN : WM_KEYUP;
-        window->OnKey(keyCode, scancode, action, 0);
-        break;
+      break;
     }
-    return DefWindowProc(hwnd, message, wparam, lparam);
+    case WM_SETFOCUS:
+      ::CreateCaret(window_handle_, nullptr, 1, 1);
+      break;
+    case WM_KILLFOCUS:
+      ::DestroyCaret();
+      break;
+    case WM_LBUTTONDOWN:
+    case WM_RBUTTONDOWN:
+    case WM_MBUTTONDOWN:
+    case WM_XBUTTONDOWN:
+      if (message == WM_LBUTTONDOWN) {
+        // Capture the pointer in case the user drags outside the client area.
+        // In this case, the "mouse leave" event is delayed until the user
+        // releases the button. It's only activated on left click given that
+        // it's more common for apps to handle dragging with only the left
+        // button.
+        SetCapture(window_handle_);
+      }
+      button_pressed = message;
+      if (message == WM_XBUTTONDOWN) {
+        button_pressed = GET_XBUTTON_WPARAM(wparam);
+      }
+      xPos = GET_X_LPARAM(lparam);
+      yPos = GET_Y_LPARAM(lparam);
+      OnPointerDown(static_cast<double>(xPos), static_cast<double>(yPos),
+                    button_pressed);
+      break;
+    case WM_LBUTTONUP:
+    case WM_RBUTTONUP:
+    case WM_MBUTTONUP:
+    case WM_XBUTTONUP:
+      if (message == WM_LBUTTONUP) {
+        ReleaseCapture();
+      }
+      button_pressed = message;
+      if (message == WM_XBUTTONUP) {
+        button_pressed = GET_XBUTTON_WPARAM(wparam);
+      }
+      xPos = GET_X_LPARAM(lparam);
+      yPos = GET_Y_LPARAM(lparam);
+      OnPointerUp(static_cast<double>(xPos), static_cast<double>(yPos),
+                  button_pressed);
+      break;
+    case WM_MOUSEWHEEL:
+      OnScroll(0.0, -(static_cast<short>(HIWORD(wparam)) /
+                      static_cast<double>(WHEEL_DELTA)));
+      break;
+    case WM_MOUSEHWHEEL:
+      OnScroll((static_cast<short>(HIWORD(wparam)) /
+                static_cast<double>(WHEEL_DELTA)),
+               0.0);
+      break;
+    case WM_INPUTLANGCHANGE:
+      // TODO(cbracken): pass this to TextInputManager to aid with
+      // language-specific issues.
+      break;
+    case WM_IME_SETCONTEXT:
+      OnImeSetContext(message, wparam, lparam);
+      // Strip the ISC_SHOWUICOMPOSITIONWINDOW bit from lparam before passing it
+      // to DefWindowProc() so that the composition window is hidden since
+      // Flutter renders the composing string itself.
+      result_lparam &= ~ISC_SHOWUICOMPOSITIONWINDOW;
+      break;
+    case WM_IME_STARTCOMPOSITION:
+      OnImeStartComposition(message, wparam, lparam);
+      // Suppress further processing by DefWindowProc() so that the default
+      // system IME style isn't used, but rather the one set in the
+      // WM_IME_SETCONTEXT handler.
+      return TRUE;
+    case WM_IME_COMPOSITION:
+      OnImeComposition(message, wparam, lparam);
+      if (lparam & GCS_RESULTSTR || lparam & GCS_COMPSTR) {
+        // Suppress further processing by DefWindowProc() since otherwise it
+        // will emit the result string as WM_CHAR messages on commit. Instead,
+        // committing the composing text to the EditableText string is handled
+        // in TextInputModel::CommitComposing, triggered by
+        // OnImeEndComposition().
+        return TRUE;
+      }
+      break;
+    case WM_IME_ENDCOMPOSITION:
+      OnImeEndComposition(message, wparam, lparam);
+      return TRUE;
+    case WM_IME_REQUEST:
+      OnImeRequest(message, wparam, lparam);
+      break;
+    case WM_UNICHAR: {
+      // Tell third-pary app, we can support Unicode.
+      if (wparam == UNICODE_NOCHAR)
+        return TRUE;
+      // DefWindowProc will send WM_CHAR for this WM_UNICHAR.
+      break;
+    }
+    case WM_DEADCHAR:
+    case WM_SYSDEADCHAR:
+    case WM_CHAR:
+    case WM_SYSCHAR: {
+      static wchar_t s_pending_high_surrogate = 0;
+
+      wchar_t character = static_cast<wchar_t>(wparam);
+      std::u16string text({character});
+      char32_t code_point = character;
+      if (IS_HIGH_SURROGATE(character)) {
+        // Save to send later with the trailing surrogate.
+        s_pending_high_surrogate = character;
+      } else if (IS_LOW_SURROGATE(character) && s_pending_high_surrogate != 0) {
+        text.insert(text.begin(), s_pending_high_surrogate);
+        // Merge the surrogate pairs for the key event.
+        code_point =
+            CodePointFromSurrogatePair(s_pending_high_surrogate, character);
+        s_pending_high_surrogate = 0;
+      }
+
+      // All key presses that generate a character should be sent from
+      // WM_CHAR. In order to send the full key press information, the keycode
+      // is persisted in keycode_for_char_message_ obtained from WM_KEYDOWN.
+      if (keycode_for_char_message_ != 0) {
+        const unsigned int scancode = (lparam >> 16) & 0xff;
+        const bool extended = ((lparam >> 24) & 0x01) == 0x01;
+        const bool was_down = lparam & 0x40000000;
+        bool handled = OnKey(keycode_for_char_message_, scancode, WM_KEYDOWN,
+                             code_point, extended, was_down);
+        keycode_for_char_message_ = 0;
+        if (handled) {
+          // If the OnKey handler handles the message, then return so we don't
+          // pass it to OnText, because handling the message indicates that
+          // OnKey either just sent it to the framework to be processed, or the
+          // framework handled the key in its response, so it shouldn't also be
+          // added as text.
+          return 0;
+        }
+      }
+
+      // Of the messages handled here, only WM_CHAR should be treated as
+      // characters. WM_SYS*CHAR are not part of text input, and WM_DEADCHAR
+      // will be incorporated into a later WM_CHAR with the full character.
+      // Also filter out:
+      // - Lead surrogates, which like dead keys will be send once combined.
+      // - ASCII control characters, which are sent as WM_CHAR events for all
+      //   control key shortcuts.
+      if (message == WM_CHAR && s_pending_high_surrogate == 0 &&
+          character >= u' ') {
+        OnText(text);
+      }
+      break;
+    }
+    case WM_KEYDOWN:
+    case WM_SYSKEYDOWN:
+    case WM_KEYUP:
+    case WM_SYSKEYUP:
+      const bool is_keydown_message =
+          (message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
+      // Check if this key produces a character. If so, the key press should
+      // be sent with the character produced at WM_CHAR. Store the produced
+      // keycode (it's not accessible from WM_CHAR) to be used in WM_CHAR.
+      const unsigned int character = MapVirtualKey(wparam, MAPVK_VK_TO_CHAR);
+      if (character > 0 && is_keydown_message) {
+        keycode_for_char_message_ = wparam;
+        break;
+      }
+      unsigned int keyCode(wparam);
+      const unsigned int scancode = (lparam >> 16) & 0xff;
+      const bool extended = ((lparam >> 24) & 0x01) == 0x01;
+      // If the key is a modifier, get its side.
+      if (keyCode == VK_SHIFT || keyCode == VK_MENU || keyCode == VK_CONTROL) {
+        keyCode = MapVirtualKey(scancode, MAPVK_VSC_TO_VK_EX);
+      }
+      const int action = is_keydown_message ? WM_KEYDOWN : WM_KEYUP;
+      const bool was_down = lparam & 0x40000000;
+      if (OnKey(keyCode, scancode, action, 0, extended, was_down)) {
+        return 0;
+      }
+      break;
   }
 
-  return DefWindowProc(window_handle_, message, wparam, lparam);
+  return DefWindowProc(window_handle_, message, wparam, result_lparam);
 }
 
 UINT Win32Window::GetCurrentDPI() {
@@ -307,6 +433,13 @@ void Win32Window::HandleResize(UINT width, UINT height) {
 Win32Window* Win32Window::GetThisFromHandle(HWND const window) noexcept {
   return reinterpret_cast<Win32Window*>(
       GetWindowLongPtr(window, GWLP_USERDATA));
+}
+
+LRESULT Win32Window::DefaultWindowProc(HWND hWnd,
+                                       UINT Msg,
+                                       WPARAM wParam,
+                                       LPARAM lParam) {
+  return DefWindowProc(hWnd, Msg, wParam, lParam);
 }
 
 }  // namespace flutter

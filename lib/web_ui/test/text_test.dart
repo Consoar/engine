@@ -5,6 +5,7 @@
 // @dart = 2.6
 import 'dart:html';
 
+import 'package:test/bootstrap/browser.dart';
 import 'package:test/test.dart';
 
 import 'package:ui/ui.dart';
@@ -12,7 +13,11 @@ import 'package:ui/src/engine.dart';
 
 import 'matchers.dart';
 
-void main() async {
+void main() {
+  internalBootstrapBrowserTest(() => testMain);
+}
+
+void testMain() async {
   const double baselineRatio = 1.1662499904632568;
 
   await webOnlyInitializeTestDomRenderer();
@@ -84,14 +89,14 @@ void main() async {
   });
 
   test('lay out unattached paragraph', () {
-    final ParagraphBuilder builder = ParagraphBuilder(ParagraphStyle(
+    final DomParagraphBuilder builder = DomParagraphBuilder(ParagraphStyle(
       fontFamily: 'sans-serif',
       fontStyle: FontStyle.normal,
       fontWeight: FontWeight.normal,
       fontSize: 14.0,
     ));
     builder.addText('How do you do this fine morning?');
-    final EngineParagraph paragraph = builder.build();
+    final DomParagraph paragraph = builder.build();
 
     expect(paragraph.paragraphElement.parent, isNull);
     expect(paragraph.height, 0.0);
@@ -150,18 +155,18 @@ void main() async {
   });
 
   test('$ParagraphBuilder detects plain text', () {
-    ParagraphBuilder builder = ParagraphBuilder(ParagraphStyle(
+    DomParagraphBuilder builder = DomParagraphBuilder(ParagraphStyle(
       fontFamily: 'sans-serif',
       fontStyle: FontStyle.normal,
       fontWeight: FontWeight.normal,
       fontSize: 15.0,
     ));
     builder.addText('hi');
-    EngineParagraph paragraph = builder.build();
+    DomParagraph paragraph = builder.build();
     expect(paragraph.plainText, isNotNull);
     expect(paragraph.geometricStyle.fontWeight, FontWeight.normal);
 
-    builder = ParagraphBuilder(ParagraphStyle(
+    builder = DomParagraphBuilder(ParagraphStyle(
       fontFamily: 'sans-serif',
       fontStyle: FontStyle.normal,
       fontWeight: FontWeight.normal,
@@ -175,7 +180,7 @@ void main() async {
   });
 
   test('$ParagraphBuilder detects rich text', () {
-    final ParagraphBuilder builder = ParagraphBuilder(ParagraphStyle(
+    final DomParagraphBuilder builder = DomParagraphBuilder(ParagraphStyle(
       fontFamily: 'sans-serif',
       fontStyle: FontStyle.normal,
       fontWeight: FontWeight.normal,
@@ -184,27 +189,27 @@ void main() async {
     builder.addText('h');
     builder.pushStyle(TextStyle(fontWeight: FontWeight.bold));
     builder.addText('i');
-    final EngineParagraph paragraph = builder.build();
+    final DomParagraph paragraph = builder.build();
     expect(paragraph.plainText, isNull);
     expect(paragraph.geometricStyle.fontWeight, FontWeight.normal);
   });
 
   test('$ParagraphBuilder treats empty text as plain', () {
-    final ParagraphBuilder builder = ParagraphBuilder(ParagraphStyle(
+    final DomParagraphBuilder builder = DomParagraphBuilder(ParagraphStyle(
       fontFamily: 'sans-serif',
       fontStyle: FontStyle.normal,
       fontWeight: FontWeight.normal,
       fontSize: 15.0,
     ));
     builder.pushStyle(TextStyle(fontWeight: FontWeight.bold));
-    final EngineParagraph paragraph = builder.build();
+    final DomParagraph paragraph = builder.build();
     expect(paragraph.plainText, '');
     expect(paragraph.geometricStyle.fontWeight, FontWeight.bold);
   });
 
   // Regression test for https://github.com/flutter/flutter/issues/34931.
   test('hit test on styled text returns correct span offset', () {
-    final ParagraphBuilder builder = ParagraphBuilder(ParagraphStyle(
+    final DomParagraphBuilder builder = DomParagraphBuilder(ParagraphStyle(
       fontFamily: 'sans-serif',
       fontStyle: FontStyle.normal,
       fontWeight: FontWeight.normal,
@@ -218,7 +223,7 @@ void main() async {
     builder.addText(secondSpanText);
     builder.pushStyle(TextStyle(fontStyle: FontStyle.italic));
     builder.addText('followed by a link');
-    final EngineParagraph paragraph = builder.build();
+    final DomParagraph paragraph = builder.build();
     paragraph.layout(const ParagraphConstraints(width: 800.0));
     expect(paragraph.plainText, isNull);
     const int secondSpanStartPosition = firstSpanText.length;
@@ -234,7 +239,7 @@ void main() async {
     const fontFamily = 'sans-serif';
     const fontSize = 20.0;
     final style = TextStyle(fontFamily: fontFamily, fontSize: fontSize);
-    final ParagraphBuilder builder = ParagraphBuilder(ParagraphStyle(
+    final DomParagraphBuilder builder = DomParagraphBuilder(ParagraphStyle(
       fontFamily: fontFamily,
       fontSize: fontSize,
     ));
@@ -321,7 +326,7 @@ void main() async {
     'test te04 test050 '
     */
 
-    final Paragraph paragraph = builder.build();
+    final DomParagraph paragraph = builder.build();
     paragraph.layout(ParagraphConstraints(width: 800));
 
     // Reference the offsets with the output of `Display arrangement`.
@@ -353,7 +358,7 @@ void main() async {
   test(
       'should not set fontFamily to effectiveFontFamily for spans in rich text',
       () {
-    final ParagraphBuilder builder = ParagraphBuilder(ParagraphStyle(
+    final DomParagraphBuilder builder = DomParagraphBuilder(ParagraphStyle(
       fontFamily: 'Roboto',
       fontStyle: FontStyle.normal,
       fontWeight: FontWeight.normal,
@@ -366,7 +371,7 @@ void main() async {
     builder.pushStyle(TextStyle(fontSize: 30.0, fontWeight: FontWeight.normal));
     const String secondSpanText = 'def';
     builder.addText(secondSpanText);
-    final EngineParagraph paragraph = builder.build();
+    final DomParagraph paragraph = builder.build();
     paragraph.layout(const ParagraphConstraints(width: 800.0));
     expect(paragraph.plainText, isNull);
     final List<SpanElement> spans =
@@ -384,14 +389,14 @@ void main() async {
     // Set this to false so it doesn't default to 'Ahem' font.
     debugEmulateFlutterTesterEnvironment = false;
 
-    final ParagraphBuilder builder = ParagraphBuilder(ParagraphStyle(
+    final DomParagraphBuilder builder = DomParagraphBuilder(ParagraphStyle(
       fontFamily: 'SomeFont',
       fontSize: 12.0,
     ));
 
     builder.addText('Hello');
 
-    final EngineParagraph paragraph = builder.build();
+    final DomParagraph paragraph = builder.build();
     expect(paragraph.paragraphElement.style.fontFamily,
         'SomeFont, $fallback, sans-serif');
 
@@ -406,14 +411,14 @@ void main() async {
     // Set this to false so it doesn't default to 'Ahem' font.
     debugEmulateFlutterTesterEnvironment = false;
 
-    final ParagraphBuilder builder = ParagraphBuilder(ParagraphStyle(
+    final DomParagraphBuilder builder = DomParagraphBuilder(ParagraphStyle(
       fontFamily: 'serif',
       fontSize: 12.0,
     ));
 
     builder.addText('Hello');
 
-    final EngineParagraph paragraph = builder.build();
+    final DomParagraph paragraph = builder.build();
     expect(paragraph.paragraphElement.style.fontFamily, 'serif');
 
     debugEmulateFlutterTesterEnvironment = true;
@@ -423,14 +428,14 @@ void main() async {
     // Set this to false so it doesn't default to 'Ahem' font.
     debugEmulateFlutterTesterEnvironment = false;
 
-    final ParagraphBuilder builder = ParagraphBuilder(ParagraphStyle(
+    final DomParagraphBuilder builder = DomParagraphBuilder(ParagraphStyle(
       fontFamily: 'MyFont 2000',
       fontSize: 12.0,
     ));
 
     builder.addText('Hello');
 
-    final EngineParagraph paragraph = builder.build();
+    final DomParagraph paragraph = builder.build();
     expect(paragraph.paragraphElement.style.fontFamily,
         '"MyFont 2000", $fallback, sans-serif');
 

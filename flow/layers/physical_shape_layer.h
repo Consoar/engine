@@ -27,6 +27,12 @@ class PhysicalShapeLayer : public ContainerLayer {
                          bool transparentOccluder,
                          SkScalar dpr);
 
+#ifdef FLUTTER_ENABLE_DIFF_CONTEXT
+
+  void Diff(DiffContext* context, const Layer* old_layer) override;
+
+#endif  // FLUTTER_ENABLE_DIFF_CONTEXT
+
   void Preroll(PrerollContext* context, const SkMatrix& matrix) override;
 
   void Paint(PaintContext& context) const override;
@@ -35,16 +41,13 @@ class PhysicalShapeLayer : public ContainerLayer {
     return clip_behavior_ == Clip::antiAliasWithSaveLayer;
   }
 
-  float total_elevation() const { return total_elevation_; }
+  float elevation() const { return elevation_; }
 
  private:
   SkColor color_;
   SkColor shadow_color_;
   float elevation_ = 0.0f;
-  float total_elevation_ = 0.0f;
   SkPath path_;
-  bool isRect_;
-  SkRRect frameRRect_;
   Clip clip_behavior_;
 };
 

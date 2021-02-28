@@ -5,10 +5,10 @@
 #ifndef FLUTTER_SHELL_PLATFORM_IOS_EXTERNAL_TEXTURE_GL_H_
 #define FLUTTER_SHELL_PLATFORM_IOS_EXTERNAL_TEXTURE_GL_H_
 
-#include "flutter/flow/texture.h"
+#include "flutter/common/graphics/texture.h"
 #include "flutter/fml/platform/darwin/cf_utils.h"
 #include "flutter/fml/platform/darwin/scoped_nsobject.h"
-#include "flutter/shell/platform/darwin/common/framework/Headers/FlutterTexture.h"
+#import "flutter/shell/platform/darwin/common/framework/Headers/FlutterTexture.h"
 
 namespace flutter {
 
@@ -25,13 +25,16 @@ class IOSExternalTextureGL final : public Texture {
   fml::CFRef<CVOpenGLESTextureCacheRef> cache_ref_;
   fml::CFRef<CVOpenGLESTextureRef> texture_ref_;
   fml::CFRef<CVPixelBufferRef> buffer_ref_;
+  OSType pixel_format_ = 0;
+  fml::CFRef<CVOpenGLESTextureRef> y_texture_ref_;
+  fml::CFRef<CVOpenGLESTextureRef> uv_texture_ref_;
 
   // |Texture|
   void Paint(SkCanvas& canvas,
              const SkRect& bounds,
              bool freeze,
-             GrContext* context,
-             SkFilterQuality filter_quality) override;
+             GrDirectContext* context,
+             const SkSamplingOptions& sampling) override;
 
   // |Texture|
   void OnGrContextCreated() override;
@@ -50,6 +53,16 @@ class IOSExternalTextureGL final : public Texture {
   void EnsureTextureCacheExists();
 
   bool NeedUpdateTexture(bool freeze);
+
+  bool IsTexturesAvailable() const;
+
+  void CreateYUVTexturesFromPixelBuffer();
+
+  void CreateRGBATextureFromPixelBuffer();
+
+  sk_sp<SkImage> CreateImageFromYUVTextures(GrDirectContext* context, const SkRect& bounds);
+
+  sk_sp<SkImage> CreateImageFromRGBATexture(GrDirectContext* context, const SkRect& bounds);
 
   FML_DISALLOW_COPY_AND_ASSIGN(IOSExternalTextureGL);
 };

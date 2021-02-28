@@ -27,7 +27,29 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		24EBCE9E2534C400008D1687 /* Embed Libraries */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 12;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Libraries";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		0AC232F424BA71D300A85907 /* SemanticsObjectTest.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SemanticsObjectTest.mm; sourceTree = "<group>"; };
+		0AC232F724BA71D300A85907 /* FlutterEngineTest.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = FlutterEngineTest.mm; sourceTree = "<group>"; };
+		0AC2330324BA71D300A85907 /* accessibility_bridge_test.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = accessibility_bridge_test.mm; sourceTree = "<group>"; };
+		0AC2330B24BA71D300A85907 /* FlutterTextInputPluginTest.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FlutterTextInputPluginTest.m; sourceTree = "<group>"; };
+		0AC2330F24BA71D300A85907 /* FlutterBinaryMessengerRelayTest.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = FlutterBinaryMessengerRelayTest.mm; sourceTree = "<group>"; };
+		0AC2331024BA71D300A85907 /* connection_collection_test.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = connection_collection_test.mm; sourceTree = "<group>"; };
+		0AC2331224BA71D300A85907 /* FlutterEnginePlatformViewTest.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = FlutterEnginePlatformViewTest.mm; sourceTree = "<group>"; };
+		0AC2331924BA71D300A85907 /* FlutterPluginAppLifeCycleDelegateTest.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FlutterPluginAppLifeCycleDelegateTest.m; sourceTree = "<group>"; };
+		0AC2332124BA71D300A85907 /* FlutterViewControllerTest.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = FlutterViewControllerTest.mm; sourceTree = "<group>"; };
 		0D1CE5D7233430F400E5D880 /* FlutterChannelsTest.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FlutterChannelsTest.m; sourceTree = "<group>"; };
 		0D6AB6B122BB05E100EEE540 /* IosUnitTests.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = IosUnitTests.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0D6AB6B422BB05E100EEE540 /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
@@ -62,6 +84,23 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0AC232E924BA71D300A85907 /* Source */ = {
+			isa = PBXGroup;
+			children = (
+				0AC232F424BA71D300A85907 /* SemanticsObjectTest.mm */,
+				0AC232F724BA71D300A85907 /* FlutterEngineTest.mm */,
+				0AC2330324BA71D300A85907 /* accessibility_bridge_test.mm */,
+				0AC2330B24BA71D300A85907 /* FlutterTextInputPluginTest.m */,
+				0AC2330F24BA71D300A85907 /* FlutterBinaryMessengerRelayTest.mm */,
+				0AC2331024BA71D300A85907 /* connection_collection_test.mm */,
+				0AC2331224BA71D300A85907 /* FlutterEnginePlatformViewTest.mm */,
+				0AC2331924BA71D300A85907 /* FlutterPluginAppLifeCycleDelegateTest.m */,
+				0AC2332124BA71D300A85907 /* FlutterViewControllerTest.mm */,
+			);
+			name = Source;
+			path = ../../../shell/platform/darwin/ios/framework/Source;
+			sourceTree = "<group>";
+		};
 		0D1CE5D62334309900E5D880 /* Source-Common */ = {
 			isa = PBXGroup;
 			children = (
@@ -74,6 +113,7 @@
 		0D6AB6A822BB05E100EEE540 = {
 			isa = PBXGroup;
 			children = (
+				0AC232E924BA71D300A85907 /* Source */,
 				0D6AB6B322BB05E100EEE540 /* App */,
 				0D6AB6CC22BB05E200EEE540 /* Tests */,
 				0D6AB6B222BB05E100EEE540 /* Products */,
@@ -131,8 +171,10 @@
 			buildConfigurationList = 0D6AB6D222BB05E200EEE540 /* Build configuration list for PBXNativeTarget "IosUnitTests" */;
 			buildPhases = (
 				0D6AB6AD22BB05E100EEE540 /* Sources */,
+				242904382534E32900F90C97 /* ShellScript */,
 				0D6AB6AE22BB05E100EEE540 /* Frameworks */,
 				0D6AB6AF22BB05E100EEE540 /* Resources */,
+				24EBCE9E2534C400008D1687 /* Embed Libraries */,
 			);
 			buildRules = (
 			);
@@ -219,6 +261,26 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		242904382534E32900F90C97 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -ex\nxcode_frameworks_dir=\"${TARGET_BUILD_DIR}/${PlugIns/IosUnitTestsTests.xctest/Frameworks/}\"\nmkdir -p \"${xcode_frameworks_dir}\"\nflutter_engine_rel_path=\"../../../../out/${FLUTTER_ENGINE}\"\ncp -f \"${flutter_engine_rel_path}/libios_test_flutter.dylib\" \"${xcode_frameworks_dir}\"\ncp -f \"${flutter_engine_rel_path}/libocmock_shared.dylib\" \"${xcode_frameworks_dir}\"\nif [[ -n \"${EXPANDED_CODE_SIGN_IDENTITY:-}\" ]]; then\n  codesign --force --verbose --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" -- \"${xcode_frameworks_dir}/libocmock_shared.dylib\"\n  codesign --force --verbose --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" -- \"${xcode_frameworks_dir}/libios_test_flutter.dylib\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		0D6AB6AD22BB05E100EEE540 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -270,6 +332,7 @@
 /* Begin XCBuildConfiguration section */
 		0D6AB6D022BB05E200EEE540 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0D6AB73E22BD8F0200EEE540 /* FlutterEngineConfig.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -329,6 +392,7 @@
 		};
 		0D6AB6D122BB05E200EEE540 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0D6AB73E22BD8F0200EEE540 /* FlutterEngineConfig.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -422,7 +486,6 @@
 		};
 		0D6AB6D622BB05E200EEE540 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 0D6AB73E22BD8F0200EEE540 /* FlutterEngineConfig.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES = YES;
@@ -448,9 +511,11 @@
 					../../../../out/$FLUTTER_ENGINE,
 					../../../../out/$FLUTTER_ENGINE/obj/flutter/shell/platform/darwin/ios/,
 					../../../../out/$FLUTTER_ENGINE/obj/third_party/ocmock/,
+					"$(PROJECT_DIR)",
 				);
 				OTHER_LDFLAGS = (
-					"-locmock",
+					"-L../../../../out/$FLUTTER_ENGINE",
+					"-locmock_shared",
 					"-ObjC",
 					"-lios_test_flutter",
 				);
@@ -464,7 +529,6 @@
 		};
 		0D6AB6D722BB05E200EEE540 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 0D6AB73E22BD8F0200EEE540 /* FlutterEngineConfig.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES = YES;
@@ -490,9 +554,11 @@
 					../../../../out/$FLUTTER_ENGINE,
 					../../../../out/$FLUTTER_ENGINE/obj/flutter/shell/platform/darwin/ios/,
 					../../../../out/$FLUTTER_ENGINE/obj/third_party/ocmock/,
+					"$(PROJECT_DIR)",
 				);
 				OTHER_LDFLAGS = (
-					"-locmock",
+					"-L../../../../out/$FLUTTER_ENGINE",
+					"-locmock_shared",
 					"-ObjC",
 					"-lios_test_flutter",
 				);

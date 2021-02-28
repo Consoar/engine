@@ -14,6 +14,8 @@
 #include "flutter/shell/platform/android/android_external_texture_gl.h"
 #include "flutter/shell/platform/android/android_surface_gl.h"
 #include "flutter/shell/platform/android/android_surface_software.h"
+#include "flutter/shell/platform/android/external_view_embedder/external_view_embedder.h"
+#include "flutter/shell/platform/android/surface/android_surface.h"
 
 #if SHELL_ENABLE_VULKAN
 #include "flutter/shell/platform/android/android_surface_vulkan.h"
@@ -26,22 +28,26 @@
 
 namespace flutter {
 
-std::unique_ptr<AndroidSurface> SurfaceFactory(
-    std::shared_ptr<AndroidContext> android_context,
-    std::shared_ptr<PlatformViewAndroidJNI> jni_facade) {
-  FML_CHECK(SurfaceFactory);
-  switch (android_context->RenderingApi()) {
+AndroidSurfaceFactoryImpl::AndroidSurfaceFactoryImpl(
+    const std::shared_ptr<AndroidContext>& context,
+    std::shared_ptr<PlatformViewAndroidJNI> jni_facade)
+    : android_context_(context), jni_facade_(jni_facade) {}
+
+AndroidSurfaceFactoryImpl::~AndroidSurfaceFactoryImpl() = default;
+
+std::unique_ptr<AndroidSurface> AndroidSurfaceFactoryImpl::CreateSurface() {
+  switch (android_context_->RenderingApi()) {
     case AndroidRenderingAPI::kSoftware:
-      return std::make_unique<AndroidSurfaceSoftware>(
-          android_context, jni_facade, SurfaceFactory);
+      return std::make_unique<AndroidSurfaceSoftware>(android_context_,
+                                                      jni_facade_);
     case AndroidRenderingAPI::kOpenGLES:
-      return std::make_unique<AndroidSurfaceGL>(android_context, jni_facade,
-                                                SurfaceFactory);
+      return std::make_unique<AndroidSurfaceGL>(android_context_, jni_facade_);
     case AndroidRenderingAPI::kVulkan:
 #if SHELL_ENABLE_VULKAN
-      return std::make_unique<AndroidSurfaceVulkan>(android_context, jni_facade,
-                                                    SurfaceFactory);
+      return std::make_unique<AndroidSurfaceVulkan>(android_context_,
+                                                    jni_facade_);
 #endif  // SHELL_ENABLE_VULKAN
+    default:
       return nullptr;
   }
   return nullptr;
@@ -52,28 +58,37 @@ PlatformViewAndroid::PlatformViewAndroid(
     flutter::TaskRunners task_runners,
     std::shared_ptr<PlatformViewAndroidJNI> jni_facade,
     bool use_software_rendering)
-    : PlatformView(delegate, std::move(task_runners)), jni_facade_(jni_facade) {
-  std::shared_ptr<AndroidContext> android_context;
+    : PlatformView(delegate, std::move(task_runners)),
+      jni_facade_(jni_facade),
+      platform_view_android_delegate_(jni_facade) {
   if (use_software_rendering) {
-    android_context =
+    android_context_ =
         std::make_shared<AndroidContext>(AndroidRenderingAPI::kSoftware);
   } else {
 #if SHELL_ENABLE_VULKAN
-    android_context =
+    android_context_ =
         std::make_shared<AndroidContext>(AndroidRenderingAPI::kVulkan);
 #else   // SHELL_ENABLE_VULKAN
-    android_context = std::make_shared<AndroidContextGL>(
+    android_context_ = std::make_unique<AndroidContextGL>(
         AndroidRenderingAPI::kOpenGLES,
         fml::MakeRefCounted<AndroidEnvironmentGL>());
 #endif  // SHELL_ENABLE_VULKAN
   }
-  FML_CHECK(android_context && android_context->IsValid())
-      << "Could not create an Android context.";
+  surface_factory_ = MakeSurfaceFactory(android_context_, *jni_facade_);
+  android_surface_ = MakeSurface(surface_factory_);
+}
 
-  android_surface_ = SurfaceFactory(std::move(android_context), jni_facade);
-  FML_CHECK(android_surface_ && android_surface_->IsValid())
-      << "Could not create an OpenGL, Vulkan or Software surface to setup "
-         "rendering.";
+PlatformViewAndroid::PlatformViewAndroid(
+    PlatformView::Delegate& delegate,
+    flutter::TaskRunners task_runners,
+    const std::shared_ptr<PlatformViewAndroidJNI>& jni_facade,
+    const std::shared_ptr<flutter::AndroidContext>& android_context)
+    : PlatformView(delegate, std::move(task_runners)),
+      jni_facade_(jni_facade),
+      android_context_(android_context),
+      platform_view_android_delegate_(jni_facade) {
+  surface_factory_ = MakeSurfaceFactory(android_context_, *jni_facade_);
+  android_surface_ = MakeSurface(surface_factory_);
 }
 
 PlatformViewAndroid::PlatformViewAndroid(
@@ -81,9 +96,31 @@ PlatformViewAndroid::PlatformViewAndroid(
     flutter::TaskRunners task_runners,
     std::shared_ptr<PlatformViewAndroidJNI> jni_facade)
     : PlatformView(delegate, std::move(task_runners)),
-      jni_facade_(jni_facade) {}
+      jni_facade_(jni_facade),
+      platform_view_android_delegate_(jni_facade) {}
 
 PlatformViewAndroid::~PlatformViewAndroid() = default;
+
+std::shared_ptr<AndroidSurfaceFactoryImpl>
+PlatformViewAndroid::MakeSurfaceFactory(
+    const std::shared_ptr<AndroidContext>& android_context,
+    const PlatformViewAndroidJNI& jni_facade) {
+  FML_CHECK(android_context->IsValid())
+      << "Could not create surface from invalid Android context.";
+
+  return std::make_shared<AndroidSurfaceFactoryImpl>(android_context,
+                                                     jni_facade_);
+}
+
+std::unique_ptr<AndroidSurface> PlatformViewAndroid::MakeSurface(
+    const std::shared_ptr<AndroidSurfaceFactoryImpl>& surface_factory) {
+  auto surface = surface_factory->CreateSurface();
+
+  FML_CHECK(surface && surface->IsValid())
+      << "Could not create an OpenGL, Vulkan or Software surface to setup "
+         "rendering.";
+  return surface;
+}
 
 void PlatformViewAndroid::NotifyCreated(
     fml::RefPtr<AndroidNativeWindow> native_window) {
@@ -260,143 +297,7 @@ void PlatformViewAndroid::DispatchSemanticsAction(JNIEnv* env,
 void PlatformViewAndroid::UpdateSemantics(
     flutter::SemanticsNodeUpdates update,
     flutter::CustomAccessibilityActionUpdates actions) {
-  constexpr size_t kBytesPerNode = 41 * sizeof(int32_t);
-  constexpr size_t kBytesPerChild = sizeof(int32_t);
-  constexpr size_t kBytesPerAction = 4 * sizeof(int32_t);
-
-  {
-    size_t num_bytes = 0;
-    for (const auto& value : update) {
-      num_bytes += kBytesPerNode;
-      num_bytes +=
-          value.second.childrenInTraversalOrder.size() * kBytesPerChild;
-      num_bytes += value.second.childrenInHitTestOrder.size() * kBytesPerChild;
-      num_bytes +=
-          value.second.customAccessibilityActions.size() * kBytesPerChild;
-    }
-
-    // The encoding defined here is used in:
-    //
-    //  * AccessibilityBridge.java
-    //  * AccessibilityBridgeTest.java
-    //  * accessibility_bridge.mm
-    //
-    // If any of the encoding structure or length is changed, those locations
-    // must be updated (at a minimum).
-    std::vector<uint8_t> buffer(num_bytes);
-    int32_t* buffer_int32 = reinterpret_cast<int32_t*>(&buffer[0]);
-    float* buffer_float32 = reinterpret_cast<float*>(&buffer[0]);
-
-    std::vector<std::string> strings;
-    size_t position = 0;
-    for (const auto& value : update) {
-      // If you edit this code, make sure you update kBytesPerNode
-      // and/or kBytesPerChild above to match the number of values you are
-      // sending.
-      const flutter::SemanticsNode& node = value.second;
-      buffer_int32[position++] = node.id;
-      buffer_int32[position++] = node.flags;
-      buffer_int32[position++] = node.actions;
-      buffer_int32[position++] = node.maxValueLength;
-      buffer_int32[position++] = node.currentValueLength;
-      buffer_int32[position++] = node.textSelectionBase;
-      buffer_int32[position++] = node.textSelectionExtent;
-      buffer_int32[position++] = node.platformViewId;
-      buffer_int32[position++] = node.scrollChildren;
-      buffer_int32[position++] = node.scrollIndex;
-      buffer_float32[position++] = (float)node.scrollPosition;
-      buffer_float32[position++] = (float)node.scrollExtentMax;
-      buffer_float32[position++] = (float)node.scrollExtentMin;
-      if (node.label.empty()) {
-        buffer_int32[position++] = -1;
-      } else {
-        buffer_int32[position++] = strings.size();
-        strings.push_back(node.label);
-      }
-      if (node.value.empty()) {
-        buffer_int32[position++] = -1;
-      } else {
-        buffer_int32[position++] = strings.size();
-        strings.push_back(node.value);
-      }
-      if (node.increasedValue.empty()) {
-        buffer_int32[position++] = -1;
-      } else {
-        buffer_int32[position++] = strings.size();
-        strings.push_back(node.increasedValue);
-      }
-      if (node.decreasedValue.empty()) {
-        buffer_int32[position++] = -1;
-      } else {
-        buffer_int32[position++] = strings.size();
-        strings.push_back(node.decreasedValue);
-      }
-      if (node.hint.empty()) {
-        buffer_int32[position++] = -1;
-      } else {
-        buffer_int32[position++] = strings.size();
-        strings.push_back(node.hint);
-      }
-      buffer_int32[position++] = node.textDirection;
-      buffer_float32[position++] = node.rect.left();
-      buffer_float32[position++] = node.rect.top();
-      buffer_float32[position++] = node.rect.right();
-      buffer_float32[position++] = node.rect.bottom();
-      node.transform.getColMajor(&buffer_float32[position]);
-      position += 16;
-
-      buffer_int32[position++] = node.childrenInTraversalOrder.size();
-      for (int32_t child : node.childrenInTraversalOrder)
-        buffer_int32[position++] = child;
-
-      for (int32_t child : node.childrenInHitTestOrder)
-        buffer_int32[position++] = child;
-
-      buffer_int32[position++] = node.customAccessibilityActions.size();
-      for (int32_t child : node.customAccessibilityActions)
-        buffer_int32[position++] = child;
-    }
-
-    // custom accessibility actions.
-    size_t num_action_bytes = actions.size() * kBytesPerAction;
-    std::vector<uint8_t> actions_buffer(num_action_bytes);
-    int32_t* actions_buffer_int32 =
-        reinterpret_cast<int32_t*>(&actions_buffer[0]);
-
-    std::vector<std::string> action_strings;
-    size_t actions_position = 0;
-    for (const auto& value : actions) {
-      // If you edit this code, make sure you update kBytesPerAction
-      // to match the number of values you are
-      // sending.
-      const flutter::CustomAccessibilityAction& action = value.second;
-      actions_buffer_int32[actions_position++] = action.id;
-      actions_buffer_int32[actions_position++] = action.overrideId;
-      if (action.label.empty()) {
-        actions_buffer_int32[actions_position++] = -1;
-      } else {
-        actions_buffer_int32[actions_position++] = action_strings.size();
-        action_strings.push_back(action.label);
-      }
-      if (action.hint.empty()) {
-        actions_buffer_int32[actions_position++] = -1;
-      } else {
-        actions_buffer_int32[actions_position++] = action_strings.size();
-        action_strings.push_back(action.hint);
-      }
-    }
-
-    // Calling NewDirectByteBuffer in API level 22 and below with a size of zero
-    // will cause a JNI crash.
-    if (actions_buffer.size() > 0) {
-      jni_facade_->FlutterViewUpdateCustomAccessibilityActions(actions_buffer,
-                                                               strings);
-    }
-
-    if (buffer.size() > 0) {
-      jni_facade_->FlutterViewUpdateSemantics(buffer, strings);
-    }
-  }
+  platform_view_android_delegate_.UpdateSemantics(update, actions);
 }
 
 void PlatformViewAndroid::RegisterExternalTexture(
@@ -416,15 +317,23 @@ std::unique_ptr<Surface> PlatformViewAndroid::CreateRenderingSurface() {
   if (!android_surface_) {
     return nullptr;
   }
-  return android_surface_->CreateGPUSurface();
+  return android_surface_->CreateGPUSurface(
+      android_context_->GetMainSkiaContext().get());
 }
 
 // |PlatformView|
-sk_sp<GrContext> PlatformViewAndroid::CreateResourceContext() const {
+std::shared_ptr<ExternalViewEmbedder>
+PlatformViewAndroid::CreateExternalViewEmbedder() {
+  return std::make_shared<AndroidExternalViewEmbedder>(
+      *android_context_, jni_facade_, surface_factory_);
+}
+
+// |PlatformView|
+sk_sp<GrDirectContext> PlatformViewAndroid::CreateResourceContext() const {
   if (!android_surface_) {
     return nullptr;
   }
-  sk_sp<GrContext> resource_context;
+  sk_sp<GrDirectContext> resource_context;
   if (android_surface_->ResourceContextMakeCurrent()) {
     // TODO(chinmaygarde): Currently, this code depends on the fact that only
     // the OpenGL surface will be able to make a resource context current. If
@@ -452,6 +361,39 @@ PlatformViewAndroid::ComputePlatformResolvedLocales(
     const std::vector<std::string>& supported_locale_data) {
   return jni_facade_->FlutterViewComputePlatformResolvedLocale(
       supported_locale_data);
+}
+
+// |PlatformView|
+void PlatformViewAndroid::RequestDartDeferredLibrary(intptr_t loading_unit_id) {
+  if (jni_facade_->RequestDartDeferredLibrary(loading_unit_id)) {
+    return;
+  }
+  return;  // TODO(garyq): Call LoadDartDeferredLibraryFailure()
+}
+
+// |PlatformView|
+void PlatformViewAndroid::LoadDartDeferredLibrary(
+    intptr_t loading_unit_id,
+    std::unique_ptr<const fml::Mapping> snapshot_data,
+    std::unique_ptr<const fml::Mapping> snapshot_instructions) {
+  delegate_.LoadDartDeferredLibrary(loading_unit_id, std::move(snapshot_data),
+                                    std::move(snapshot_instructions));
+}
+
+// |PlatformView|
+void PlatformViewAndroid::LoadDartDeferredLibraryError(
+    intptr_t loading_unit_id,
+    const std::string error_message,
+    bool transient) {
+  delegate_.LoadDartDeferredLibraryError(loading_unit_id, error_message,
+                                         transient);
+}
+
+// |PlatformView|
+void PlatformViewAndroid::UpdateAssetResolverByType(
+    std::unique_ptr<AssetResolver> updated_asset_resolver,
+    AssetResolver::AssetResolverType type) {
+  delegate_.UpdateAssetResolverByType(std::move(updated_asset_resolver), type);
 }
 
 void PlatformViewAndroid::InstallFirstFrameCallback() {

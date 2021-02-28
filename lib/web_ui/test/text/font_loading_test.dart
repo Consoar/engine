@@ -8,11 +8,16 @@ import 'dart:convert';
 import 'dart:html' as html;
 import 'dart:typed_data';
 
+import 'package:test/bootstrap/browser.dart';
 import 'package:test/test.dart';
 import 'package:ui/ui.dart' as ui;
 import 'package:ui/src/engine.dart';
 
-Future<void> main() async {
+void main() {
+  internalBootstrapBrowserTest(() => testMain);
+}
+
+void testMain() async {
   await ui.webOnlyInitializeTestDomRenderer();
   group('loadFontFromList', () {
     const String _testFontUrl = 'packages/ui/assets/ahem.ttf';
@@ -49,14 +54,20 @@ Future<void> main() async {
 
     test('loading font should clear measurement caches', () async {
       final ui.ParagraphStyle style = ui.ParagraphStyle();
-      final ui.ParagraphBuilder builder = ui.ParagraphBuilder(style);
       final ui.ParagraphConstraints constraints =
           ui.ParagraphConstraints(width: 30.0);
-      builder.addText('test');
-      final ui.Paragraph paragraph = builder.build();
+
+      final DomParagraphBuilder domBuilder = DomParagraphBuilder(style);
+      domBuilder.addText('test');
       // Triggers the measuring and verifies the result has been cached.
-      paragraph.layout(constraints);
+      domBuilder.build().layout(constraints);
       expect(TextMeasurementService.rulerManager.rulers.length, 1);
+
+      final CanvasParagraphBuilder canvasBuilder = CanvasParagraphBuilder(style);
+      canvasBuilder.addText('test');
+      // Triggers the measuring and verifies the ruler cache has been populated.
+      canvasBuilder.build().layout(constraints);
+      expect(Spanometer.rulers.length, 1);
 
       // Now, loads a new font using loadFontFromList. This should clear the
       // cache
@@ -69,6 +80,7 @@ Future<void> main() async {
       // Verifies the font is loaded, and the cache is cleaned.
       expect(_containsFontFamily('Blehm'), true);
       expect(TextMeasurementService.rulerManager.rulers.length, 0);
+      expect(Spanometer.rulers.length, 0);
     },
         // TODO(nurhan): https://github.com/flutter/flutter/issues/56702
         // TODO(nurhan): https://github.com/flutter/flutter/issues/50770

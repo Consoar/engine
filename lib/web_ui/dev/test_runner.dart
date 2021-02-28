@@ -9,20 +9,35 @@ import 'dart:io' as io;
 import 'package:args/command_runner.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as path;
+import 'package:pool/pool.dart';
 import 'package:test_core/src/runner/hack_register_platform.dart'
     as hack; // ignore: implementation_imports
 import 'package:test_api/src/backend/runtime.dart'; // ignore: implementation_imports
 import 'package:test_core/src/executable.dart'
     as test; // ignore: implementation_imports
-import 'package:simulators/simulator_manager.dart';
+import 'package:web_test_utils/goldens.dart';
 
+import 'common.dart';
 import 'environment.dart';
 import 'exceptions.dart';
 import 'integration_tests_manager.dart';
+import 'macos_info.dart';
 import 'safari_installation.dart';
 import 'supported_browsers.dart';
 import 'test_platform.dart';
 import 'utils.dart';
+import 'watcher.dart';
+
+/// Global list of shards that failed.
+///
+/// This is used to make sure that when there's a test failure anywhere we
+/// exit with a non-zero exit code.
+///
+/// Shards must never be removed from this list, only added.
+List<String> failedShards = <String>[];
+
+/// Whether all test shards succeeded.
+bool get allShardsPassed => failedShards.isEmpty;
 
 /// The type of tests requested by the tool user.
 enum TestTypesRequested {
@@ -44,6 +59,12 @@ class TestCommand extends Command<bool> with ArgUtils {
         help: 'Pauses the browser before running a test, giving you an '
             'opportunity to add breakpoints or inspect loaded code before '
             'running the code.',
+      )
+      ..addFlag(
+        'watch',
+        abbr: 'w',
+        help: 'Run in watch mode so the tests re-run whenever a change is '
+            'made.',
       )
       ..addFlag(
         'unit-tests-only',
@@ -78,15 +99,34 @@ class TestCommand extends Command<bool> with ArgUtils {
             '.dart_tool/goldens. Use this option to bulk-update all screenshots, '
             'for example, when a new browser version affects pixels.',
       )
+      ..addFlag(
+        'fetch-goldens-repo',
+        defaultsTo: true,
+        negatable: true,
+        help: 'Whether to fetch the goldens repo. Set this to false to iterate '
+            'on golden tests without fearing that the fetcher will overwrite '
+            'your local changes.',
+      )
       ..addOption(
         'browser',
         defaultsTo: 'chrome',
         help: 'An option to choose a browser to run the tests. Tests only work '
             ' on Chrome for now.',
+      )
+      ..addFlag(
+        'fail-early',
+        defaultsTo: false,
+        negatable: true,
+        help: 'If set, causes the test runner to exit upon the first test '
+              'failure. If not set, the test runner will continue running '
+              'test despite failures and will report them after all tests '
+              'finish.',
       );
 
     SupportedBrowsers.instance.argParsers
         .forEach((t) => t.populateOptions(argParser));
+    GeneralTestsArgumentParser.instance.populateOptions(argParser);
+    IntegrationTestsArgumentParser.instance.populateOptions(argParser);
   }
 
   @override
@@ -95,7 +135,21 @@ class TestCommand extends Command<bool> with ArgUtils {
   @override
   final String description = 'Run tests.';
 
+  bool get isWatchMode => boolArg('watch');
+
+  bool get failEarly => boolArg('fail-early');
+
   TestTypesRequested testTypesRequested = null;
+
+  /// How many dart2js build tasks are running at the same time.
+  final Pool _pool = Pool(8);
+
+  /// Whether test harness preparation (such as fetching the goldens,
+  /// creating test_results directory or starting ios-simulator) has been done.
+  ///
+  /// If unit tests already did these steps, integration tests do not have to
+  /// repeat them.
+  bool _testPreparationReady = false;
 
   /// Check the flags to see what type of tests are requested.
   TestTypesRequested findTestType() {
@@ -120,35 +174,121 @@ class TestCommand extends Command<bool> with ArgUtils {
   Future<bool> run() async {
     SupportedBrowsers.instance
       ..argParsers.forEach((t) => t.parseOptions(argResults));
+    GeneralTestsArgumentParser.instance.parseOptions(argResults);
 
     // Check the flags to see what type of integration tests are requested.
     testTypesRequested = findTestType();
 
-    switch (testTypesRequested) {
-      case TestTypesRequested.unit:
-        return runUnitTests();
-      case TestTypesRequested.integration:
-        return runIntegrationTests();
-      case TestTypesRequested.all:
-        // TODO(nurhan): https://github.com/flutter/flutter/issues/53322
-        // TODO(nurhan): Expand browser matrix for felt integration tests.
-        if (runAllTests && (isChrome || isSafariOnMacOS || isFirefox)) {
-          bool unitTestResult = await runUnitTests();
-          bool integrationTestResult = await runIntegrationTests();
-          if (integrationTestResult != unitTestResult) {
-            print('Tests run. Integration tests passed: $integrationTestResult '
-                'unit tests passed: $unitTestResult');
-          }
-          return integrationTestResult && unitTestResult;
-        } else {
-          return await runUnitTests();
-        }
+    if (isSafariOnMacOS) {
+      /// Collect information on the bot.
+      final MacOSInfo macOsInfo = new MacOSInfo();
+      await macOsInfo.printInformation();
     }
-    return false;
+
+    final Pipeline testPipeline = Pipeline(steps: <PipelineStep>[
+      () async => clearTerminalScreen(),
+      () => runTestsOfType(testTypesRequested),
+    ]);
+    await testPipeline.start();
+
+    if (isWatchMode) {
+      final FilePath dir = FilePath.fromWebUi('');
+      print('');
+      print('Initial test run is done!');
+      print(
+          'Watching ${dir.relativeToCwd}/lib and ${dir.relativeToCwd}/test to re-run tests');
+      print('');
+      PipelineWatcher(
+          dir: dir.absolute,
+          pipeline: testPipeline,
+          ignore: (event) {
+            // Ignore font files that are copied whenever tests run.
+            if (event.path.endsWith('.ttf')) {
+              return true;
+            }
+
+            // Ignore auto-generated JS files.
+            // The reason we are using `.contains()` instead of `.endsWith()` is
+            // because the auto-generated files could end with any of the
+            // following:
+            //
+            // - browser_test.dart.js
+            // - browser_test.dart.js.map
+            // - browser_test.dart.js.deps
+            if (event.path.contains('browser_test.dart.js')) {
+              return true;
+            }
+
+            // React to changes in lib/ and test/ folders.
+            final String relativePath =
+                path.relative(event.path, from: dir.absolute);
+            if (relativePath.startsWith('lib/') ||
+                relativePath.startsWith('test/')) {
+              return false;
+            }
+
+            // Ignore anything else.
+            return true;
+          }).start();
+      // Return a never-ending future.
+      return Completer<bool>().future;
+    } else {
+      if (!allShardsPassed) {
+        io.stderr.writeln(_createFailedShardsMessage());
+      }
+      return allShardsPassed;
+    }
+  }
+
+  String _createFailedShardsMessage() {
+    final StringBuffer message = StringBuffer(
+      'The following test shards failed:\n',
+    );
+    for (String failedShard in failedShards) {
+      message.writeln(' - $failedShard');
+    }
+    return message.toString();
+  }
+
+  Future<bool> runTestsOfType(TestTypesRequested testTypesRequested) async {
+    try {
+      switch (testTypesRequested) {
+        case TestTypesRequested.unit:
+          return runUnitTests();
+        case TestTypesRequested.integration:
+          return runIntegrationTests();
+        case TestTypesRequested.all:
+          if (runAllTests && isIntegrationTestsAvailable) {
+            bool unitTestResult = await runUnitTests();
+            bool integrationTestResult = await runIntegrationTests();
+            if (integrationTestResult != unitTestResult) {
+              print(
+                  'Tests run. Integration tests passed: $integrationTestResult '
+                  'unit tests passed: $unitTestResult');
+            }
+            return integrationTestResult && unitTestResult;
+          } else {
+            return await runUnitTests();
+          }
+      }
+      throw UnimplementedError(
+          'Unknown test type requested: $testTypesRequested');
+    } on TestFailureException {
+      return true;
+    }
   }
 
   Future<bool> runIntegrationTests() async {
-    return IntegrationTestsManager(browser, useSystemFlutter).runTests();
+    // Parse additional arguments specific for integration testing.
+    IntegrationTestsArgumentParser.instance.parseOptions(argResults);
+    await _prepare();
+    final bool result = await IntegrationTestsManager(
+            browser, useSystemFlutter, doUpdateScreenshotGoldens)
+        .runTests();
+    if (!result) {
+      failedShards.add('Integration tests');
+    }
+    return result;
   }
 
   Future<bool> runUnitTests() async {
@@ -161,32 +301,7 @@ class TestCommand extends Command<bool> with ArgUtils {
       await _runPubGet();
     }
 
-    // In order to run iOS Safari unit tests we need to make sure iOS Simulator
-    // is booted.
-    if (browser == 'ios-safari') {
-      final IosSimulatorManager iosSimulatorManager = IosSimulatorManager();
-      IosSimulator iosSimulator;
-      try {
-        iosSimulator = await iosSimulatorManager.getSimulator(
-            IosSafariArgParser.instance.iosMajorVersion,
-            IosSafariArgParser.instance.iosMinorVersion,
-            IosSafariArgParser.instance.iosDevice);
-      } catch (e) {
-        throw Exception('Error getting requested simulator. Try running '
-            '`felt create` command first before running the tests. exception: '
-            '$e');
-      }
-
-      if (!iosSimulator.booted) {
-        await iosSimulator.boot();
-        print('INFO: Simulator ${iosSimulator.id} booted.');
-        cleanupCallbacks.add(() async {
-          await iosSimulator.shutdown();
-          print('INFO: Simulator ${iosSimulator.id} shutdown.');
-        });
-      }
-    }
-
+    await _prepare();
     await _buildTargets();
 
     if (runAllTests) {
@@ -195,6 +310,36 @@ class TestCommand extends Command<bool> with ArgUtils {
       await _runSpecificTests(targetFiles);
     }
     return true;
+  }
+
+  /// Preparations before running the tests such as booting simulators or
+  /// creating directories.
+  Future<void> _prepare() async {
+    if (_testPreparationReady) {
+      return;
+    }
+    if (environment.webUiTestResultsDirectory.existsSync()) {
+      environment.webUiTestResultsDirectory.deleteSync(recursive: true);
+    }
+    environment.webUiTestResultsDirectory.createSync(recursive: true);
+
+    // If screenshot tests are available, fetch the screenshot goldens.
+    if (isScreenshotTestsAvailable && doFetchGoldensRepo) {
+      if (isVerboseLoggingEnabled) {
+        print('INFO: Fetching goldens repo');
+      }
+      final GoldensRepoFetcher goldensRepoFetcher = GoldensRepoFetcher(
+          environment.webUiGoldensRepositoryDirectory,
+          path.join(environment.webUiDevDir.path, 'goldens_lock.yaml'));
+      await goldensRepoFetcher.fetch();
+    }
+
+    // In order to run iOS Safari unit tests we need to make sure iOS Simulator
+    // is booted.
+    if (isSafariIOS) {
+      await IosSafariArgParser.instance.initIosSimulator();
+    }
+    _testPreparationReady = true;
   }
 
   /// Builds all test targets that will be run.
@@ -214,7 +359,7 @@ class TestCommand extends Command<bool> with ArgUtils {
     }
 
     // Separate HTML targets from CanvasKit targets because the two use
-    // different dart2js options (and different build.*.yaml files).
+    // different dart2js options.
     final List<FilePath> htmlTargets = <FilePath>[];
     final List<FilePath> canvasKitTargets = <FilePath>[];
     final String canvasKitTestDirectory =
@@ -228,14 +373,81 @@ class TestCommand extends Command<bool> with ArgUtils {
     }
 
     if (htmlTargets.isNotEmpty) {
-      await _buildTests(targets: htmlTargets, forCanvasKit: false);
+      await _buildTestsInParallel(targets: htmlTargets, forCanvasKit: false);
     }
 
+    // Currently iOS Safari tests are running on simulator, which does not
+    // support canvaskit backend.
     if (canvasKitTargets.isNotEmpty) {
-      await _buildTests(targets: canvasKitTargets, forCanvasKit: true);
+      await _buildTestsInParallel(
+          targets: canvasKitTargets, forCanvasKit: true);
     }
+
+    _copyFilesFromTestToBuild();
+    _copyFilesFromLibToBuild();
+
     stopwatch.stop();
     print('The build took ${stopwatch.elapsedMilliseconds ~/ 1000} seconds.');
+
+    _cleanupExtraFilesUnderTestDir();
+  }
+
+  /// Copy image files from test/ to build/test/.
+  ///
+  /// By copying all the files helps with the following:
+  /// - Tests using on an asset/image are able to reach these files.
+  /// - Source maps can locate test files.
+  ///
+  /// A side effect is this file copies all the images even when only one
+  /// target test is asked to run.
+  void _copyFilesFromTestToBuild() {
+    final List<io.FileSystemEntity> contents =
+        environment.webUiTestDir.listSync(recursive: true);
+    _copyFiles(contents);
+  }
+
+  /// Copy contents of /lib under /build.
+  ///
+  /// Since the source map are created to assume library files are under
+  /// `../../../../lib/src/`. Unless these files are copied under /build,
+  /// they are not visible during debug.
+  ///
+  /// This operation was handled by `build_runner` before we started using
+  /// plain `dart2js`.
+  void _copyFilesFromLibToBuild() {
+    final List<io.FileSystemEntity> contents =
+        environment.webUiLibDir.listSync(recursive: true);
+    _copyFiles(contents);
+  }
+
+  void _copyFiles(List<io.FileSystemEntity> contents) {
+    contents.whereType<io.File>().forEach((final io.File entity) {
+      final String directoryPath = path.relative(path.dirname(entity.path),
+          from: environment.webUiRootDir.path);
+      final io.Directory directory = io.Directory(
+          path.join(environment.webUiBuildDir.path, directoryPath));
+      if (!directory.existsSync()) {
+        directory.createSync(recursive: true);
+      }
+      final String pathRelativeToWebUi = path.relative(entity.absolute.path,
+          from: environment.webUiRootDir.path);
+      entity.copySync(
+          path.join(environment.webUiBuildDir.path, pathRelativeToWebUi));
+    });
+  }
+
+  /// Dart2js initially run under /test directory.
+  ///
+  /// The following files are copied under /build directory after that.
+  ///
+  void _cleanupExtraFilesUnderTestDir() {
+    final List<io.FileSystemEntity> contents =
+        environment.webUiTestDir.listSync(recursive: true);
+    contents.whereType<io.File>().forEach((final io.File entity) {
+      if (path.basename(entity.path).contains('.browser_test.dart.js')) {
+        entity.deleteSync();
+      }
+    });
   }
 
   /// Whether to start the browser in debug mode.
@@ -267,8 +479,52 @@ class TestCommand extends Command<bool> with ArgUtils {
   bool get isFirefox => browser == 'firefox';
 
   /// Whether [browser] is set to "safari".
-  bool get isSafariOnMacOS => browser == 'safari'
-      && io.Platform.isMacOS;
+  bool get isSafariOnMacOS => browser == 'safari' && io.Platform.isMacOS;
+
+  /// Whether [browser] is set to "ios-safari".
+  bool get isSafariIOS => browser == 'ios-safari' && io.Platform.isMacOS;
+
+  /// Due to lack of resources Chrome integration tests only run on Linux on
+  /// LUCI.
+  ///
+  /// They run on all platforms for local.
+  bool get isChromeIntegrationTestAvailable =>
+      (isChrome && isLuci && io.Platform.isLinux) || (isChrome && !isLuci);
+
+  /// Due to efficiancy constraints, Firefox integration tests only run on
+  /// Linux on LUCI.
+  ///
+  /// For now Firefox integration tests only run on Linux and Mac on local.
+  ///
+  // TODO: https://github.com/flutter/flutter/issues/63832
+  bool get isFirefoxIntegrationTestAvailable =>
+      (isFirefox && isLuci && io.Platform.isLinux) ||
+      (isFirefox && !isLuci && !io.Platform.isWindows);
+
+  /// Latest versions of Safari Desktop are only available on macOS.
+  ///
+  /// Integration testing on LUCI is not supported at the moment.
+  // TODO: https://github.com/flutter/flutter/issues/63710
+  bool get isSafariIntegrationTestAvailable => isSafariOnMacOS && !isLuci;
+
+  /// Due to various factors integration tests might be missing on a given
+  /// platform and given environment.
+  /// See: [isChromeIntegrationTestAvailable]
+  /// See: [isSafariIntegrationTestAvailable]
+  /// See: [isFirefoxIntegrationTestAvailable]
+  bool get isIntegrationTestsAvailable =>
+      isChromeIntegrationTestAvailable ||
+      isFirefoxIntegrationTestAvailable ||
+      isSafariIntegrationTestAvailable;
+
+  // Whether the tests will do screenshot testing.
+  bool get isScreenshotTestsAvailable =>
+      isIntegrationTestsAvailable || isUnitTestsScreenshotsAvailable;
+
+  // For unit tests screenshot tests and smoke tests only run on:
+  // "Chrome/iOS" for LUCI/local.
+  bool get isUnitTestsScreenshotsAvailable =>
+      isChrome && (io.Platform.isLinux || !isLuci) || isSafariIOS;
 
   /// Use system flutter instead of cloning the repository.
   ///
@@ -279,6 +535,9 @@ class TestCommand extends Command<bool> with ArgUtils {
   /// ".dart_tool/goldens".
   bool get doUpdateScreenshotGoldens => boolArg('update-screenshot-goldens');
 
+  /// Whether to fetch the goldens repo prior to running tests.
+  bool get doFetchGoldensRepo => boolArg('fetch-goldens-repo');
+
   /// Runs all tests specified in [targets].
   ///
   /// Unlike [_runAllTestsForCurrentPlatform], this does not filter targets
@@ -286,7 +545,10 @@ class TestCommand extends Command<bool> with ArgUtils {
   /// them.
   Future<void> _runSpecificTests(List<FilePath> targets) async {
     await _runTestBatch(targets, concurrency: 1, expectFailure: false);
-    _checkExitCode();
+    _checkExitCode(
+      'Some of the following tests: ' +
+      targets.map((FilePath path) => path.relativeToWebUi).join(', '),
+    );
   }
 
   /// Runs as many tests as possible on the current OS/browser combination.
@@ -296,36 +558,42 @@ class TestCommand extends Command<bool> with ArgUtils {
       'test',
     ));
 
-    // Screenshot tests and smoke tests only run in Chrome.
-    if (isChrome) {
-      // Separate screenshot tests from unit-tests. Screenshot tests must run
-      // one at a time. Otherwise, they will end up screenshotting each other.
-      // This is not an issue for unit-tests.
-      final FilePath failureSmokeTestPath = FilePath.fromWebUi(
-        'test/golden_tests/golden_failure_smoke_test.dart',
-      );
-      final List<FilePath> screenshotTestFiles = <FilePath>[];
-      final List<FilePath> unitTestFiles = <FilePath>[];
+    // Separate screenshot tests from unit-tests. Screenshot tests must run
+    // one at a time. Otherwise, they will end up screenshotting each other.
+    // This is not an issue for unit-tests.
+    final FilePath failureSmokeTestPath = FilePath.fromWebUi(
+      'test/golden_tests/golden_failure_smoke_test.dart',
+    );
+    final List<FilePath> screenshotTestFiles = <FilePath>[];
+    final List<FilePath> unitTestFiles = <FilePath>[];
 
-      for (io.File testFile
-          in testDir.listSync(recursive: true).whereType<io.File>()) {
-        final FilePath testFilePath = FilePath.fromCwd(testFile.path);
-        if (!testFilePath.absolute.endsWith('_test.dart')) {
-          // Not a test file at all. Skip.
-          continue;
-        }
-        if (testFilePath == failureSmokeTestPath) {
-          // A smoke test that fails on purpose. Skip.
-          continue;
-        }
-
-        if (path.split(testFilePath.relativeToWebUi).contains('golden_tests')) {
-          screenshotTestFiles.add(testFilePath);
-        } else {
-          unitTestFiles.add(testFilePath);
-        }
+    for (io.File testFile
+        in testDir.listSync(recursive: true).whereType<io.File>()) {
+      final FilePath testFilePath = FilePath.fromCwd(testFile.path);
+      if (!testFilePath.absolute.endsWith('_test.dart')) {
+        // Not a test file at all. Skip.
+        continue;
+      }
+      if (testFilePath == failureSmokeTestPath) {
+        // A smoke test that fails on purpose. Skip.
+        continue;
       }
 
+      // All files under test/golden_tests are considered golden tests.
+      final bool isUnderGoldenTestsDirectory =
+          path.split(testFilePath.relativeToWebUi).contains('golden_tests');
+      // Any file whose name ends with "_golden_test.dart" is run as a golden test.
+      final bool isGoldenTestFile = path
+          .basename(testFilePath.relativeToWebUi)
+          .endsWith('_golden_test.dart');
+      if (isUnderGoldenTestsDirectory || isGoldenTestFile) {
+        screenshotTestFiles.add(testFilePath);
+      } else {
+        unitTestFiles.add(testFilePath);
+      }
+    }
+
+    if (isUnitTestsScreenshotsAvailable) {
       // This test returns a non-zero exit code on purpose. Run it separately.
       if (io.Platform.environment['CIRRUS_CI'] != 'true') {
         await _runTestBatch(
@@ -333,13 +601,15 @@ class TestCommand extends Command<bool> with ArgUtils {
           concurrency: 1,
           expectFailure: true,
         );
-        _checkExitCode();
+        _checkExitCode('Smoke test');
       }
+    }
 
-      // Run all unit-tests as a single batch.
-      await _runTestBatch(unitTestFiles, concurrency: 10, expectFailure: false);
-      _checkExitCode();
+    // Run all unit-tests as a single batch.
+    await _runTestBatch(unitTestFiles, concurrency: 10, expectFailure: false);
+    _checkExitCode('Unit tests');
 
+    if (isUnitTestsScreenshotsAvailable) {
       // Run screenshot tests one at a time.
       for (FilePath testFilePath in screenshotTestFiles) {
         await _runTestBatch(
@@ -347,32 +617,22 @@ class TestCommand extends Command<bool> with ArgUtils {
           concurrency: 1,
           expectFailure: false,
         );
-        _checkExitCode();
+        _checkExitCode('Golden tests');
       }
-    } else {
-      final List<FilePath> unitTestFiles = <FilePath>[];
-      for (io.File testFile
-          in testDir.listSync(recursive: true).whereType<io.File>()) {
-        final FilePath testFilePath = FilePath.fromCwd(testFile.path);
-        if (!testFilePath.absolute.endsWith('_test.dart')) {
-          // Not a test file at all. Skip.
-          continue;
-        }
-        if (!path
-            .split(testFilePath.relativeToWebUi)
-            .contains('golden_tests')) {
-          unitTestFiles.add(testFilePath);
-        }
-      }
-      // Run all unit-tests as a single batch.
-      await _runTestBatch(unitTestFiles, concurrency: 10, expectFailure: false);
-      _checkExitCode();
     }
   }
 
-  void _checkExitCode() {
+  void _checkExitCode(String shard) {
     if (io.exitCode != 0) {
-      throw ToolException('Process exited with exit code ${io.exitCode}.');
+      if (isWatchMode) {
+        io.exitCode = 0;
+        throw TestFailureException();
+      } else {
+        failedShards.add(shard);
+        if (failEarly) {
+          throw ToolException(_createFailedShardsMessage());
+        }
+      }
     }
   }
 
@@ -436,75 +696,93 @@ class TestCommand extends Command<bool> with ArgUtils {
     timestampFile.writeAsStringSync(timestamp);
   }
 
+  Future<void> _buildTestsInParallel(
+      {List<FilePath> targets, bool forCanvasKit = false}) async {
+    final List<TestBuildInput> buildInputs = targets
+        .map((FilePath f) => TestBuildInput(f, forCanvasKit: forCanvasKit))
+        .toList();
+
+    final results = _pool.forEach(
+      buildInputs,
+      _buildTest,
+    );
+    await for (final bool isSuccess in results) {
+      if (!isSuccess) {
+        throw ToolException('Failed to compile tests.');
+      }
+    }
+  }
+
   /// Builds the specific test [targets].
   ///
   /// [targets] must not be null.
   ///
-  /// When building for CanvasKit we have to use a separate `build.canvaskit.yaml`
-  /// config file. Otherwise, `build.html.yaml` is used. Because `build_runner`
-  /// overwrites the output directories, we redirect the CanvasKit output to a
-  /// separate directory, then copy the files back to `build/test`.
-  Future<void> _buildTests({List<FilePath> targets, bool forCanvasKit}) async {
-    print(
-        'Building ${targets.length} targets for ${forCanvasKit ? 'CanvasKit' : 'HTML'}');
-    final String canvasKitOutputRelativePath =
-        path.join('.dart_tool', 'canvaskit_tests');
+  /// Uses `dart2js` for building the test.
+  ///
+  /// When building for CanvasKit we have to use extra argument
+  /// `DFLUTTER_WEB_USE_SKIA=true`.
+  ///
+  /// Dart2js creates the following outputs:
+  /// - target.browser_test.dart.js
+  /// - target.browser_test.dart.js.deps
+  /// - target.browser_test.dart.js.maps
+  /// under the same directory with test file. If all these files are not in
+  /// the same directory, Chrome dev tools cannot load the source code during
+  /// debug.
+  ///
+  /// All the files under test already copied from /test directory to /build
+  /// directory before test are build. See [_copyFilesFromTestToBuild].
+  ///
+  /// Later the extra files will be deleted in [_cleanupExtraFilesUnderTestDir].
+  Future<bool> _buildTest(TestBuildInput input) async {
+    final targetFileName = '${input.path.relativeToWebUi}.browser_test.dart.js';
+
+    final io.Directory directoryToTarget = io.Directory(path.join(
+        environment.webUiBuildDir.path,
+        path.dirname(input.path.relativeToWebUi)));
+
+    if (!directoryToTarget.existsSync()) {
+      directoryToTarget.createSync(recursive: true);
+    }
+
     List<String> arguments = <String>[
-      'run',
-      'build_runner',
-      'build',
+      '--no-minify',
+      '--disable-inlining',
+      '--enable-asserts',
       '--enable-experiment=non-nullable',
-      'test',
+      '--no-sound-null-safety',
+
+      // We do not want to auto-select a renderer in tests. As of today, tests
+      // are designed to run in one specific mode. So instead, we specify the
+      // renderer explicitly.
+      '-DFLUTTER_WEB_AUTO_DETECT=false',
+      '-DFLUTTER_WEB_USE_SKIA=${input.forCanvasKit}',
+
+      '-O2',
       '-o',
-      forCanvasKit ? canvasKitOutputRelativePath : 'build',
-      '--config',
-      // CanvasKit uses `build.canvaskit.yaml`, which HTML Uses `build.html.yaml`.
-      forCanvasKit ? 'canvaskit' : 'html',
-      for (FilePath path in targets) ...[
-        '--build-filter=${path.relativeToWebUi}.js',
-        '--build-filter=${path.relativeToWebUi}.browser_test.dart.js',
-      ],
+      targetFileName, // target path.
+      '${input.path.relativeToWebUi}', // current path.
     ];
 
     final int exitCode = await runProcess(
-      environment.pubExecutable,
+      environment.dart2jsExecutable,
       arguments,
       workingDirectory: environment.webUiRootDir.path,
-      environment: <String, String>{
-        // This determines the number of concurrent dart2js processes.
-        //
-        // By default build_runner uses 4 workers.
-        //
-        // In a testing on a 32-core 132GB workstation increasing this number to
-        // 32 sped up the build from ~4min to ~1.5min.
-        if (io.Platform.environment.containsKey('BUILD_MAX_WORKERS_PER_TASK'))
-          'BUILD_MAX_WORKERS_PER_TASK':
-              io.Platform.environment['BUILD_MAX_WORKERS_PER_TASK'],
-      },
     );
 
     if (exitCode != 0) {
-      throw ToolException(
-          'Failed to compile tests. Compiler exited with exit code $exitCode');
-    }
-
-    if (forCanvasKit) {
-      final io.Directory canvasKitTemporaryOutputDirectory = io.Directory(
-          path.join(environment.webUiRootDir.path, canvasKitOutputRelativePath,
-              'test', 'canvaskit'));
-      final io.Directory canvasKitOutputDirectory = io.Directory(
-          path.join(environment.webUiBuildDir.path, 'test', 'canvaskit'));
-      if (await canvasKitOutputDirectory.exists()) {
-        await canvasKitOutputDirectory.delete(recursive: true);
-      }
-      await canvasKitTemporaryOutputDirectory
-          .rename(canvasKitOutputDirectory.path);
+      io.stderr.writeln('ERROR: Failed to compile test ${input.path}. '
+          'Dart2js exited with exit code $exitCode');
+      return false;
+    } else {
+      return true;
     }
   }
 
   /// Runs a batch of tests.
   ///
-  /// Unless [expectFailure] is set to false, sets [io.exitCode] to a non-zero value if any tests fail.
+  /// Unless [expectFailure] is set to false, sets [io.exitCode] to a non-zero
+  /// value if any tests fail.
   Future<void> _runTestBatch(
     List<FilePath> testFiles, {
     @required int concurrency,
@@ -527,16 +805,20 @@ class TestCommand extends Command<bool> with ArgUtils {
       return BrowserPlatform.start(
         browser,
         root: io.Directory.current.path,
-        // It doesn't make sense to update a screenshot for a test that is expected to fail.
+        // It doesn't make sense to update a screenshot for a test that is
+        // expected to fail.
         doUpdateScreenshotGoldens: !expectFailure && doUpdateScreenshotGoldens,
       );
     });
 
     // We want to run tests with `web_ui` as a working directory.
-    final dynamic backupCwd = io.Directory.current;
+    final dynamic originalCwd = io.Directory.current;
     io.Directory.current = environment.webUiRootDir.path;
-    await test.main(testArgs);
-    io.Directory.current = backupCwd;
+    try {
+      await test.main(testArgs);
+    } finally {
+      io.Directory.current = originalCwd;
+    }
 
     if (expectFailure) {
       if (io.exitCode != 0) {
@@ -552,7 +834,12 @@ class TestCommand extends Command<bool> with ArgUtils {
   }
 }
 
-const List<String> _kTestFonts = <String>['ahem.ttf', 'Roboto-Regular.ttf'];
+const List<String> _kTestFonts = <String>[
+  'ahem.ttf',
+  'Roboto-Regular.ttf',
+  'NotoNaskhArabic-Regular.ttf',
+  'NotoColorEmoji.ttf',
+];
 
 void _copyTestFontsIntoWebUi() {
   final String fontsPath = path.join(
@@ -570,3 +857,18 @@ void _copyTestFontsIntoWebUi() {
     sourceTtf.copySync(destinationTtfPath);
   }
 }
+
+/// Used as an input message to the PoolResources that are building a test.
+class TestBuildInput {
+  /// Test to build.
+  final FilePath path;
+
+  /// Whether these tests should be build for CanvasKit.
+  ///
+  /// `-DFLUTTER_WEB_USE_SKIA=true` is passed to dart2js for CanvasKit.
+  final bool forCanvasKit;
+
+  TestBuildInput(this.path, {this.forCanvasKit = false});
+}
+
+class TestFailureException implements Exception {}

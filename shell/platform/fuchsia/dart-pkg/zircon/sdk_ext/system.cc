@@ -21,11 +21,6 @@
 #include "third_party/tonic/dart_binding_macros.h"
 #include "third_party/tonic/dart_class_library.h"
 
-#if !defined(FUCHSIA_SDK)
-#include <fuchsia/device/manager/cpp/fidl.h>
-#include "lib/fsl/io/fd.h"
-#endif  // !defined(FUCHSIA_SDK)
-
 using tonic::ToDart;
 
 namespace zircon {
@@ -103,7 +98,8 @@ Dart_Handle MakeHandleList(const std::vector<zx_handle_t>& in_handles) {
   tonic::DartClassLibrary& class_library =
       tonic::DartState::Current()->class_library();
   Dart_Handle handle_type = class_library.GetClass("zircon", "Handle");
-  Dart_Handle list = Dart_NewListOfType(handle_type, in_handles.size());
+  Dart_Handle list = Dart_NewListOfTypeFilled(
+      handle_type, Handle::CreateInvalid(), in_handles.size());
   if (Dart_IsError(list))
     return list;
   for (size_t i = 0; i < in_handles.size(); i++) {
@@ -428,9 +424,7 @@ struct SizedRegion {
   size_t size;
 };
 
-void System::VmoMapFinalizer(void* isolate_callback_data,
-                             Dart_WeakPersistentHandle handle,
-                             void* peer) {
+void System::VmoMapFinalizer(void* isolate_callback_data, void* peer) {
   SizedRegion* r = reinterpret_cast<SizedRegion*>(peer);
   zx_vmar_unmap(zx_vmar_root_self(), reinterpret_cast<uintptr_t>(r->region),
                 r->size);
@@ -458,11 +452,15 @@ Dart_Handle System::VmoMap(fml::RefPtr<Handle> vmo) {
   FML_DCHECK(!tonic::LogIfError(object));
 
   SizedRegion* r = new SizedRegion(data, size);
-  Dart_NewWeakPersistentHandle(object, reinterpret_cast<void*>(r),
-                               static_cast<intptr_t>(size) + sizeof(*r),
-                               System::VmoMapFinalizer);
+  Dart_NewFinalizableHandle(object, reinterpret_cast<void*>(r),
+                            static_cast<intptr_t>(size) + sizeof(*r),
+                            System::VmoMapFinalizer);
 
   return ConstructDartObject(kMapResult, ToDart(ZX_OK), object);
+}
+
+uint64_t System::ClockGetMonotonic() {
+  return zx_clock_get_monotonic();
 }
 
 uint64_t System::ClockGet(uint32_t clock_id) {
@@ -490,6 +488,7 @@ uint64_t System::ClockGet(uint32_t clock_id) {
   V(System, VmoRead)               \
   V(System, VmoWrite)              \
   V(System, VmoMap)                \
+  V(System, ClockGetMonotonic)     \
   V(System, ClockGet)
 
 // clang-format: on

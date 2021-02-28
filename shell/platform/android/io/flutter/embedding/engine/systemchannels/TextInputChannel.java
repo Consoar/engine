@@ -1,6 +1,7 @@
 package io.flutter.embedding.engine.systemchannels;
 
 import android.os.Build;
+import android.os.Bundle;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import androidx.annotation.NonNull;
@@ -13,6 +14,7 @@ import io.flutter.plugin.common.MethodChannel;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -110,6 +112,26 @@ public class TextInputChannel {
               break;
             case "TextInput.clearClient":
               textInputMethodHandler.clearClient();
+              result.success(null);
+              break;
+            case "TextInput.sendAppPrivateCommand":
+              try {
+                final JSONObject arguments = (JSONObject) args;
+                final String action = arguments.getString("action");
+                final String data = arguments.getString("data");
+                Bundle bundle = null;
+                if (data != null && !data.isEmpty()) {
+                  bundle = new Bundle();
+                  bundle.putString("data", data);
+                }
+                textInputMethodHandler.sendAppPrivateCommand(action, bundle);
+                result.success(null);
+              } catch (JSONException exception) {
+                result.error("error", exception.getMessage(), null);
+              }
+              break;
+            case "TextInput.finishAutofillContext":
+              textInputMethodHandler.finishAutofillContext((boolean) args);
               result.success(null);
               break;
             default:
@@ -262,6 +284,38 @@ public class TextInputChannel {
         Arrays.asList(inputClientId, "TextInputAction.unspecified"));
   }
 
+  public void performPrivateCommand(int inputClientId, String action, Bundle data) {
+    HashMap<Object, Object> json = new HashMap<>();
+    json.put("action", action);
+    if (data != null) {
+      HashMap<String, Object> dataMap = new HashMap<>();
+      Set<String> keySet = data.keySet();
+      for (String key : keySet) {
+        Object value = data.get(key);
+        if (value instanceof byte[]) {
+          dataMap.put(key, data.getByteArray(key));
+        } else if (value instanceof Byte) {
+          dataMap.put(key, data.getByte(key));
+        } else if (value instanceof char[]) {
+          dataMap.put(key, data.getCharArray(key));
+        } else if (value instanceof Character) {
+          dataMap.put(key, data.getChar(key));
+        } else if (value instanceof CharSequence[]) {
+          dataMap.put(key, data.getCharSequenceArray(key));
+        } else if (value instanceof CharSequence) {
+          dataMap.put(key, data.getCharSequence(key));
+        } else if (value instanceof float[]) {
+          dataMap.put(key, data.getFloatArray(key));
+        } else if (value instanceof Float) {
+          dataMap.put(key, data.getFloat(key));
+        }
+      }
+      json.put("data", dataMap);
+    }
+    channel.invokeMethod(
+        "TextInputClient.performPrivateCommand", Arrays.asList(inputClientId, json));
+  }
+
   /**
    * Sets the {@link TextInputMethodHandler} which receives all events and requests that are parsed
    * from the underlying platform channel.
@@ -283,6 +337,18 @@ public class TextInputChannel {
      * <p>Has no effect if the current client does not support autofill.
      */
     void requestAutofill();
+
+    /**
+     * Requests that the {@link AutofillManager} cancel or commit the current autofill context.
+     *
+     * <p>The method calls {@link android.view.autofill.AutofillManager#commit()} when {@code
+     * shouldSave} is true, and calls {@link android.view.autofill.AutofillManager#cancel()}
+     * otherwise.
+     *
+     * @param shouldSave whether the active autofill service should save the current user input for
+     *     future use.
+     */
+    void finishAutofillContext(boolean shouldSave);
 
     // TODO(mattcarroll): javadoc
     void setClient(int textInputClientId, @NonNull Configuration configuration);
@@ -312,6 +378,17 @@ public class TextInputChannel {
 
     // TODO(mattcarroll): javadoc
     void clearClient();
+
+    /**
+     * Sends client app private command to the current text input client(input method). The app
+     * private command result will be informed through {@code performPrivateCommand}.
+     *
+     * @param action Name of the command to be performed. This must be a scoped name. i.e. prefixed
+     *     with a package name you own, so that different developers will not create conflicting
+     *     commands.
+     * @param data Any data to include with the command.
+     */
+    void sendAppPrivateCommand(String action, Bundle data);
   }
 
   /** A text editing configuration. */
@@ -598,17 +675,71 @@ public class TextInputChannel {
       return new TextEditState(
           textEditState.getString("text"),
           textEditState.getInt("selectionBase"),
-          textEditState.getInt("selectionExtent"));
+          textEditState.getInt("selectionExtent"),
+          textEditState.getInt("composingBase"),
+          textEditState.getInt("composingExtent"));
     }
 
     @NonNull public final String text;
     public final int selectionStart;
     public final int selectionEnd;
+    public final int composingStart;
+    public final int composingEnd;
 
-    public TextEditState(@NonNull String text, int selectionStart, int selectionEnd) {
+    public TextEditState(
+        @NonNull String text,
+        int selectionStart,
+        int selectionEnd,
+        int composingStart,
+        int composingEnd)
+        throws IndexOutOfBoundsException {
+
+      if ((selectionStart != -1 || selectionEnd != -1)
+          && (selectionStart < 0 || selectionEnd < 0)) {
+        throw new IndexOutOfBoundsException(
+            "invalid selection: ("
+                + String.valueOf(selectionStart)
+                + ", "
+                + String.valueOf(selectionEnd)
+                + ")");
+      }
+
+      if ((composingStart != -1 || composingEnd != -1)
+          && (composingStart < 0 || composingStart >= composingEnd)) {
+        throw new IndexOutOfBoundsException(
+            "invalid composing range: ("
+                + String.valueOf(composingStart)
+                + ", "
+                + String.valueOf(composingEnd)
+                + ")");
+      }
+
+      if (composingEnd > text.length()) {
+        throw new IndexOutOfBoundsException(
+            "invalid composing start: " + String.valueOf(composingStart));
+      }
+
+      if (selectionStart > text.length()) {
+        throw new IndexOutOfBoundsException(
+            "invalid selection start: " + String.valueOf(selectionStart));
+      }
+
+      if (selectionEnd > text.length()) {
+        throw new IndexOutOfBoundsException(
+            "invalid selection end: " + String.valueOf(selectionEnd));
+      }
+
       this.text = text;
       this.selectionStart = selectionStart;
       this.selectionEnd = selectionEnd;
+      this.composingStart = composingStart;
+      this.composingEnd = composingEnd;
+    }
+
+    public boolean hasSelection() {
+      // When selectionStart == -1, it's guaranteed that selectionEnd will also
+      // be -1.
+      return selectionStart >= 0;
     }
   }
 }

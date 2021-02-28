@@ -21,7 +21,7 @@ namespace flutter {
 ///
 ///
 /// This can be used in conjuction to unique_ptr to provide better guarantees
-/// about the lifespam of the `EGLSurface` object.
+/// about the lifespan of the `EGLSurface` object.
 ///
 class AndroidEGLSurface {
  public:
@@ -41,7 +41,7 @@ class AndroidEGLSurface {
   ///
   /// @return     Whether the surface was made current.
   ///
-  bool MakeCurrent();
+  bool MakeCurrent() const;
 
   //----------------------------------------------------------------------------
   /// @brief      This only applies to on-screen surfaces such as those created
@@ -101,15 +101,21 @@ class AndroidContextGL : public AndroidContext {
 
   //----------------------------------------------------------------------------
   /// @return     Whether the current context is valid. That is, if the EGL
-  /// contexts
-  ///             were successfully created.
+  ///             contexts were successfully created.
   ///
-  bool IsValid() const;
+  bool IsValid() const override;
 
   //----------------------------------------------------------------------------
   /// @return     Whether the current context was successfully clear.
   ///
-  bool ClearCurrent();
+  bool ClearCurrent() const;
+
+  //----------------------------------------------------------------------------
+  /// @brief      Create a new EGLContext using the same EGLConfig.
+  ///
+  /// @return     The EGLContext.
+  ///
+  EGLContext CreateNewContext() const;
 
  private:
   fml::RefPtr<AndroidEnvironmentGL> environment_;

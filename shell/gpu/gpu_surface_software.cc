@@ -82,14 +82,9 @@ SkMatrix GPUSurfaceSoftware::GetRootTransformation() const {
 }
 
 // |Surface|
-GrContext* GPUSurfaceSoftware::GetContext() {
+GrDirectContext* GPUSurfaceSoftware::GetContext() {
   // There is no GrContext associated with a software surface.
   return nullptr;
-}
-
-// |Surface|
-flutter::ExternalViewEmbedder* GPUSurfaceSoftware::GetExternalViewEmbedder() {
-  return delegate_->GetExternalViewEmbedder();
 }
 
 }  // namespace flutter

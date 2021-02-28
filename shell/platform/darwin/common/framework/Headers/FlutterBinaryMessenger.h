@@ -7,7 +7,7 @@
 
 #import <Foundation/Foundation.h>
 
-#include "FlutterMacros.h"
+#import "FlutterMacros.h"
 
 NS_ASSUME_NONNULL_BEGIN
 /**
@@ -29,6 +29,8 @@ typedef void (^FlutterBinaryReply)(NSData* _Nullable reply);
  */
 typedef void (^FlutterBinaryMessageHandler)(NSData* _Nullable message, FlutterBinaryReply reply);
 
+typedef int64_t FlutterBinaryMessengerConnection;
+
 /**
  * A facility for communicating with the Flutter side using asynchronous message
  * passing with binary messages.
@@ -40,7 +42,7 @@ typedef void (^FlutterBinaryMessageHandler)(NSData* _Nullable message, FlutterBi
  * method calls.
  * - `FlutterEventChannel`, which supports commuication using event streams.
  */
-FLUTTER_EXPORT
+FLUTTER_DARWIN_EXPORT
 @protocol FlutterBinaryMessenger <NSObject>
 /**
  * Sends a binary message to the Flutter side on the specified channel, expecting
@@ -72,9 +74,20 @@ FLUTTER_EXPORT
  *
  * @param channel The channel name.
  * @param handler The message handler.
+ * @return An identifier that represents the connection that was just created to the channel.
  */
-- (void)setMessageHandlerOnChannel:(NSString*)channel
-              binaryMessageHandler:(FlutterBinaryMessageHandler _Nullable)handler;
+- (FlutterBinaryMessengerConnection)setMessageHandlerOnChannel:(NSString*)channel
+                                          binaryMessageHandler:
+                                              (FlutterBinaryMessageHandler _Nullable)handler;
+
+/**
+ * Clears out a channel's message handler if that handler is still the one that
+ * was created as a result of
+ * `setMessageHandlerOnChannel:binaryMessageHandler:`.
+ *
+ * @param connection The result from `setMessageHandlerOnChannel:binaryMessageHandler:`.
+ */
+- (void)cleanupConnection:(FlutterBinaryMessengerConnection)connection;
 @end
 NS_ASSUME_NONNULL_END
 #endif  // FLUTTER_FLUTTERBINARYMESSENGER_H_

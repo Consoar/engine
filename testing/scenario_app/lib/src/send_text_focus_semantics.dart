@@ -1,6 +1,8 @@
-// Copyright 2020 The Flutter Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+// @dart = 2.6
 
 import 'dart:typed_data';
 import 'dart:ui';
@@ -11,9 +13,9 @@ import 'channel_util.dart';
 import 'scenario.dart';
 
 /// A scenario that sends back messages when touches are received.
-class SendTextFocusScemantics extends Scenario {
+class SendTextFocusSemantics extends Scenario {
   /// Constructor for `SendTextFocusScemantics`.
-  SendTextFocusScemantics(Window window) : super(window);
+  SendTextFocusSemantics(PlatformDispatcher dispatcher) : super(dispatcher);
 
   @override
   void onBeginFrame(Duration duration) {
@@ -55,9 +57,16 @@ class SendTextFocusScemantics extends Scenario {
         currentValueLength: 0,
         scrollChildren: 0,
         scrollIndex: 0,
+        scrollPosition: 0.0,
+        scrollExtentMax: 0.0,
+        scrollExtentMin: 0.0,
         transform: Matrix4.identity().storage,
         elevation: 0.0,
         thickness: 0.0,
+        hint: '',
+        value: '',
+        increasedValue: '',
+        decreasedValue: '',
         childrenInTraversalOrder: Int32List(0),
         childrenInHitTestOrder: Int32List(0),
         additionalActions: Int32List(0),
@@ -72,7 +81,7 @@ class SendTextFocusScemantics extends Scenario {
     // This mimics the framework which shows the FlutterTextInputView before
     // updating the TextInputSemanticsObject.
     sendJsonMethodCall(
-      window: window,
+      dispatcher: dispatcher,
       channel: 'flutter/textinput',
       method: 'TextInput.setClient',
       arguments: <dynamic>[
@@ -84,7 +93,7 @@ class SendTextFocusScemantics extends Scenario {
     );
 
     sendJsonMethodCall(
-      window: window,
+      dispatcher: dispatcher,
       channel: 'flutter/textinput',
       method: 'TextInput.show',
     );
@@ -105,9 +114,16 @@ class SendTextFocusScemantics extends Scenario {
         currentValueLength: 0,
         scrollChildren: 0,
         scrollIndex: 0,
+        scrollPosition: 0.0,
+        scrollExtentMax: 0.0,
+        scrollExtentMin: 0.0,
         transform: Matrix4.identity().storage,
         elevation: 0.0,
         thickness: 0.0,
+        hint: '',
+        value: '',
+        increasedValue: '',
+        decreasedValue: '',
         childrenInTraversalOrder: Int32List(0),
         childrenInHitTestOrder: Int32List(0),
         additionalActions: Int32List(0),

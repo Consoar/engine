@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.h"
+#import "flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.h"
 
 #include "flutter/fml/platform/darwin/scoped_nsobject.h"
-#include "flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformViews_Internal.h"
+#import "flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformViews_Internal.h"
 
 namespace {
 
@@ -452,7 +452,9 @@ flutter::SemanticsAction GetSemanticsActionForScrollDirection(
 - (void)accessibilityElementDidBecomeFocused {
   if (![self isAccessibilityBridgeAlive])
     return;
-  if ([self node].HasFlag(flutter::SemanticsFlags::kIsHidden)) {
+  [self bridge]->AccessibilityObjectDidBecomeFocused([self uid]);
+  if ([self node].HasFlag(flutter::SemanticsFlags::kIsHidden) ||
+      [self node].HasFlag(flutter::SemanticsFlags::kIsHeader)) {
     [self bridge]->DispatchSemanticsAction([self uid], flutter::SemanticsAction::kShowOnScreen);
   }
   if ([self node].HasAction(flutter::SemanticsAction::kDidGainAccessibilityFocus)) {
@@ -464,6 +466,7 @@ flutter::SemanticsAction GetSemanticsActionForScrollDirection(
 - (void)accessibilityElementDidLoseFocus {
   if (![self isAccessibilityBridgeAlive])
     return;
+  [self bridge]->AccessibilityObjectDidLoseFocus([self uid]);
   if ([self node].HasAction(flutter::SemanticsAction::kDidLoseAccessibilityFocus)) {
     [self bridge]->DispatchSemanticsAction([self uid],
                                            flutter::SemanticsAction::kDidLoseAccessibilityFocus);
@@ -527,6 +530,11 @@ flutter::SemanticsAction GetSemanticsActionForScrollDirection(
   if ([self node].HasFlag(flutter::SemanticsFlags::kIsLink)) {
     traits |= UIAccessibilityTraitLink;
   }
+  if (traits == UIAccessibilityTraitNone && ![self hasChildren] &&
+      [[self accessibilityLabel] length] != 0 &&
+      ![self node].HasFlag(flutter::SemanticsFlags::kIsTextField)) {
+    traits = UIAccessibilityTraitStaticText;
+  }
   return traits;
 }
 
@@ -554,10 +562,9 @@ flutter::SemanticsAction GetSemanticsActionForScrollDirection(
   // `accessibilityContainer` and `accessibilityElementAtIndex`.
   if (self = [super initWithAccessibilityContainer:object.bridge->view()]) {
     _semanticsObject = object;
-    flutter::FlutterPlatformViewsController* controller =
-        object.bridge->GetPlatformViewsController();
+    auto controller = object.bridge->GetPlatformViewsController();
     if (controller) {
-      _platformView = [[controller->GetPlatformViewByID(object.node.platformViewId) view] retain];
+      _platformView = [controller->GetPlatformViewByID(object.node.platformViewId) retain];
     }
   }
   return self;
@@ -569,9 +576,34 @@ flutter::SemanticsAction GetSemanticsActionForScrollDirection(
   [super dealloc];
 }
 
-- (NSArray*)accessibilityElements {
-  return @[ _semanticsObject, _platformView ];
+#pragma mark - UIAccessibilityContainer overrides
+
+- (NSInteger)accessibilityElementCount {
+  // This container should only contain 2 elements:
+  // 1. The semantic object that represents this container.
+  // 2. The platform view object.
+  return 2;
 }
+
+- (nullable id)accessibilityElementAtIndex:(NSInteger)index {
+  FML_DCHECK(index < 2);
+  if (index == 0) {
+    return _semanticsObject;
+  } else {
+    return _platformView;
+  }
+}
+
+- (NSInteger)indexOfAccessibilityElement:(id)element {
+  FML_DCHECK(element == _semanticsObject || element == _platformView);
+  if (element == _semanticsObject) {
+    return 0;
+  } else {
+    return 1;
+  }
+}
+
+#pragma mark - UIAccessibilityElement overrides
 
 - (CGRect)accessibilityFrame {
   return _semanticsObject.accessibilityFrame;

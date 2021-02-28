@@ -4,13 +4,16 @@
 
 package io.flutter.plugin.common;
 
-import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.UiThread;
 import io.flutter.BuildConfig;
+import io.flutter.Log;
 import io.flutter.plugin.common.BinaryMessenger.BinaryMessageHandler;
 import io.flutter.plugin.common.BinaryMessenger.BinaryReply;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.io.Writer;
 import java.nio.ByteBuffer;
 
 /**
@@ -19,7 +22,7 @@ import java.nio.ByteBuffer;
  * <p>Incoming method calls are decoded from binary on receipt, and Java results are encoded into
  * binary before being transmitted back to Flutter. The {@link MethodCodec} used must be compatible
  * with the one used by the Flutter application. This can be achieved by creating a <a
- * href="https://docs.flutter.io/flutter/services/MethodChannel-class.html">MethodChannel</a>
+ * href="https://api.flutter.dev/flutter/services/MethodChannel-class.html">MethodChannel</a>
  * counterpart of this channel on the Dart side. The Java type of method call arguments and results
  * is {@code Object}, but only values supported by the specified {@link MethodCodec} can be used.
  *
@@ -90,7 +93,7 @@ public class MethodChannel {
    * @param callback a {@link Result} callback for the invocation result, or null.
    */
   @UiThread
-  public void invokeMethod(String method, @Nullable Object arguments, Result callback) {
+  public void invokeMethod(String method, @Nullable Object arguments, @Nullable Result callback) {
     messenger.send(
         name,
         codec.encodeMethodCall(new MethodCall(method, arguments)),
@@ -104,9 +107,9 @@ public class MethodChannel {
    *
    * <p>If no handler has been registered, any incoming method call on this channel will be handled
    * silently by sending a null reply. This results in a <a
-   * href="https://docs.flutter.io/flutter/services/MissingPluginException-class.html">MissingPluginException</a>
+   * href="https://api.flutter.dev/flutter/services/MissingPluginException-class.html">MissingPluginException</a>
    * on the Dart side, unless an <a
-   * href="https://docs.flutter.io/flutter/services/OptionalMethodChannel-class.html">OptionalMethodChannel</a>
+   * href="https://api.flutter.dev/flutter/services/OptionalMethodChannel-class.html">OptionalMethodChannel</a>
    * is used.
    *
    * @param handler a {@link MethodCallHandler}, or null to deregister.
@@ -247,8 +250,16 @@ public class MethodChannel {
             });
       } catch (RuntimeException e) {
         Log.e(TAG + name, "Failed to handle method call", e);
-        reply.reply(codec.encodeErrorEnvelope("error", e.getMessage(), null));
+        reply.reply(
+            codec.encodeErrorEnvelopeWithStacktrace(
+                "error", e.getMessage(), null, getStackTrace(e)));
       }
+    }
+
+    private String getStackTrace(Exception e) {
+      Writer result = new StringWriter();
+      e.printStackTrace(new PrintWriter(result));
+      return result.toString();
     }
   }
 }

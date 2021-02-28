@@ -8,14 +8,16 @@
 
 #include "flutter/shell/platform/embedder/embedder_layers.h"
 #include "flutter/shell/platform/embedder/embedder_render_target.h"
-#include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/GrDirectContext.h"
 
 namespace flutter {
 
 EmbedderExternalViewEmbedder::EmbedderExternalViewEmbedder(
+    bool avoid_backing_store_cache,
     const CreateRenderTargetCallback& create_render_target_callback,
     const PresentCallback& present_callback)
-    : create_render_target_callback_(create_render_target_callback),
+    : avoid_backing_store_cache_(avoid_backing_store_cache),
+      create_render_target_callback_(create_render_target_callback),
       present_callback_(present_callback) {
   FML_DCHECK(create_render_target_callback_);
   FML_DCHECK(present_callback_);
@@ -49,7 +51,7 @@ void EmbedderExternalViewEmbedder::CancelFrame() {
 // |ExternalViewEmbedder|
 void EmbedderExternalViewEmbedder::BeginFrame(
     SkISize frame_size,
-    GrContext* context,
+    GrDirectContext* context,
     double device_pixel_ratio,
     fml::RefPtr<fml::RasterThreadMerger> raster_thread_merger) {
   Reset();
@@ -131,9 +133,10 @@ static FlutterBackingStoreConfig MakeBackingStoreConfig(
 }
 
 // |ExternalViewEmbedder|
-bool EmbedderExternalViewEmbedder::SubmitFrame(
-    GrContext* context,
-    std::unique_ptr<SurfaceFrame> frame) {
+void EmbedderExternalViewEmbedder::SubmitFrame(
+    GrDirectContext* context,
+    std::unique_ptr<SurfaceFrame> frame,
+    const std::shared_ptr<fml::SyncSwitch>& gpu_disable_sync_switch) {
   auto [matched_render_targets, pending_keys] =
       render_target_cache_.GetExistingTargetsInCache(pending_views_);
 
@@ -185,7 +188,7 @@ bool EmbedderExternalViewEmbedder::SubmitFrame(
 
     if (!render_target) {
       FML_LOG(ERROR) << "Embedder did not return a valid render target.";
-      return false;
+      return;
     }
     matched_render_targets[pending_key] = std::move(render_target);
   }
@@ -204,7 +207,7 @@ bool EmbedderExternalViewEmbedder::SubmitFrame(
              ->Render(*render_target.second)) {
       FML_LOG(ERROR)
           << "Could not render into the embedder supplied render target.";
-      return false;
+      return;
     }
   }
 
@@ -262,11 +265,13 @@ bool EmbedderExternalViewEmbedder::SubmitFrame(
   // Hold all rendered layers in the render target cache for one frame to
   // see if they may be reused next frame.
   for (auto& render_target : matched_render_targets) {
-    render_target_cache_.CacheRenderTarget(render_target.first,
-                                           std::move(render_target.second));
+    if (!avoid_backing_store_cache_) {
+      render_target_cache_.CacheRenderTarget(render_target.first,
+                                             std::move(render_target.second));
+    }
   }
 
-  return frame->Submit();
+  frame->Submit();
 }
 
 }  // namespace flutter

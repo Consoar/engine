@@ -21,28 +21,39 @@ PhysicalShapeLayer::PhysicalShapeLayer(SkColor color,
       shadow_color_(shadow_color),
       elevation_(elevation),
       path_(path),
-      isRect_(false),
-      clip_behavior_(clip_behavior) {
-  SkRect rect;
-  if (path.isRect(&rect)) {
-    isRect_ = true;
-    frameRRect_ = SkRRect::MakeRect(rect);
-  } else if (path.isRRect(&frameRRect_)) {
-    isRect_ = frameRRect_.isRect();
-  } else if (path.isOval(&rect)) {
-    // isRRect returns false for ovals, so we need to explicitly check isOval
-    // as well.
-    frameRRect_ = SkRRect::MakeOval(rect);
-  } else {
-    // Scenic currently doesn't provide an easy way to create shapes from
-    // arbitrary paths.
-    // For shapes that cannot be represented as a rounded rectangle we
-    // default to use the bounding rectangle.
-    // TODO(amirh): fix this once we have a way to create a Scenic shape from
-    // an SkPath.
-    frameRRect_ = SkRRect::MakeRect(path.getBounds());
+      clip_behavior_(clip_behavior) {}
+
+#ifdef FLUTTER_ENABLE_DIFF_CONTEXT
+
+void PhysicalShapeLayer::Diff(DiffContext* context, const Layer* old_layer) {
+  DiffContext::AutoSubtreeRestore subtree(context);
+  auto* prev = static_cast<const PhysicalShapeLayer*>(old_layer);
+  if (!context->IsSubtreeDirty()) {
+    FML_DCHECK(prev);
+    if (color_ != prev->color_ || shadow_color_ != prev->shadow_color_ ||
+        elevation_ != prev->elevation() || path_ != prev->path_ ||
+        clip_behavior_ != prev->clip_behavior_) {
+      context->MarkSubtreeDirty(context->GetOldLayerPaintRegion(old_layer));
+    }
   }
+
+  SkRect bounds;
+  if (elevation_ == 0) {
+    bounds = path_.getBounds();
+  } else {
+    bounds = ComputeShadowBounds(path_.getBounds(), elevation_,
+                                 context->frame_device_pixel_ratio());
+  }
+
+  context->AddLayerBounds(bounds);
+
+  if (context->PushCullRect(bounds)) {
+    DiffChildren(context, prev);
+  }
+  context->SetLayerPaintRegion(this, context->CurrentSubtreeRegion());
 }
+
+#endif  // FLUTTER_ENABLE_DIFF_CONTEXT
 
 void PhysicalShapeLayer::Preroll(PrerollContext* context,
                                  const SkMatrix& matrix) {
@@ -50,13 +61,8 @@ void PhysicalShapeLayer::Preroll(PrerollContext* context,
   Layer::AutoPrerollSaveLayerState save =
       Layer::AutoPrerollSaveLayerState::Create(context, UsesSaveLayer());
 
-  context->total_elevation += elevation_;
-  total_elevation_ = context->total_elevation;
-
   SkRect child_paint_bounds;
   PrerollChildren(context, matrix, &child_paint_bounds);
-
-  context->total_elevation -= elevation_;
 
   if (elevation_ == 0) {
     set_paint_bounds(path_.getBounds());
@@ -71,7 +77,7 @@ void PhysicalShapeLayer::Preroll(PrerollContext* context,
 
 void PhysicalShapeLayer::Paint(PaintContext& context) const {
   TRACE_EVENT0("flutter", "PhysicalShapeLayer::Paint");
-  FML_DCHECK(needs_painting());
+  FML_DCHECK(needs_painting(context));
 
   if (elevation_ != 0) {
     DrawShadow(context.leaf_nodes_canvas, path_, shadow_color_, elevation_,
@@ -113,6 +119,12 @@ void PhysicalShapeLayer::Paint(PaintContext& context) const {
   PaintChildren(context);
 
   context.internal_nodes_canvas->restoreToCount(saveCount);
+
+  if (UsesSaveLayer()) {
+    if (context.checkerboard_offscreen_layers) {
+      DrawCheckerboard(context.internal_nodes_canvas, paint_bounds());
+    }
+  }
 }
 
 SkRect PhysicalShapeLayer::ComputeShadowBounds(const SkRect& bounds,

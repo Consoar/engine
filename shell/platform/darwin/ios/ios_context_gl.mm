@@ -2,13 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "flutter/shell/platform/darwin/ios/ios_context_gl.h"
+#import "flutter/shell/platform/darwin/ios/ios_context_gl.h"
 
 #import <OpenGLES/EAGL.h>
 
 #include "flutter/shell/common/shell_io_manager.h"
+#include "flutter/shell/gpu/gpu_surface_gl.h"
 #include "flutter/shell/gpu/gpu_surface_gl_delegate.h"
-#include "flutter/shell/platform/darwin/ios/ios_external_texture_gl.h"
+#import "flutter/shell/platform/darwin/ios/ios_external_texture_gl.h"
 
 namespace flutter {
 
@@ -24,7 +25,11 @@ IOSContextGL::IOSContextGL() {
   }
 }
 
-IOSContextGL::~IOSContextGL() = default;
+IOSContextGL::~IOSContextGL() {
+  if (main_context_) {
+    main_context_->releaseResourcesAndAbandonContext();
+  }
+}
 
 std::unique_ptr<IOSRenderTargetGL> IOSContextGL::CreateRenderTarget(
     fml::scoped_nsobject<CAEAGLLayer> layer) {
@@ -32,7 +37,7 @@ std::unique_ptr<IOSRenderTargetGL> IOSContextGL::CreateRenderTarget(
 }
 
 // |IOSContext|
-sk_sp<GrContext> IOSContextGL::CreateResourceContext() {
+sk_sp<GrDirectContext> IOSContextGL::CreateResourceContext() {
   if (![EAGLContext setCurrentContext:resource_context_.get()]) {
     FML_DLOG(INFO) << "Could not make resource context current on IO thread. Async texture uploads "
                       "will be disabled. On Simulators, this is expected.";
@@ -41,6 +46,15 @@ sk_sp<GrContext> IOSContextGL::CreateResourceContext() {
 
   return ShellIOManager::CreateCompatibleResourceLoadingContext(
       GrBackend::kOpenGL_GrBackend, GPUSurfaceGLDelegate::GetDefaultPlatformGLInterface());
+}
+
+// |IOSContext|
+sk_sp<GrDirectContext> IOSContextGL::GetMainContext() const {
+  return main_context_;
+}
+
+void IOSContextGL::SetMainContext(const sk_sp<GrDirectContext>& main_context) {
+  main_context_ = main_context;
 }
 
 // |IOSContext|

@@ -8,12 +8,13 @@ import android.content.res.AssetManager;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.UiThread;
+import io.flutter.FlutterInjector;
 import io.flutter.Log;
 import io.flutter.embedding.engine.FlutterJNI;
+import io.flutter.embedding.engine.loader.FlutterLoader;
 import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugin.common.StringCodec;
 import io.flutter.view.FlutterCallbackInformation;
-import io.flutter.view.FlutterMain;
 import java.nio.ByteBuffer;
 
 /**
@@ -120,7 +121,10 @@ public class DartExecutor implements BinaryMessenger {
     Log.v(TAG, "Executing Dart entrypoint: " + dartEntrypoint);
 
     flutterJNI.runBundleAndSnapshotFromLibrary(
-        dartEntrypoint.pathToBundle, dartEntrypoint.dartEntrypointFunctionName, null, assetManager);
+        dartEntrypoint.pathToBundle,
+        dartEntrypoint.dartEntrypointFunctionName,
+        dartEntrypoint.dartEntrypointLibrary,
+        assetManager);
 
     isApplicationRunning = true;
   }
@@ -250,13 +254,26 @@ public class DartExecutor implements BinaryMessenger {
    * that entrypoint and other assets required for Dart execution.
    */
   public static class DartEntrypoint {
+    /**
+     * Create a DartEntrypoint pointing to the default Flutter assets location with a default Dart
+     * entrypoint.
+     */
     @NonNull
     public static DartEntrypoint createDefault() {
-      return new DartEntrypoint(FlutterMain.findAppBundlePath(), "main");
+      FlutterLoader flutterLoader = FlutterInjector.instance().flutterLoader();
+
+      if (!flutterLoader.initialized()) {
+        throw new AssertionError(
+            "DartEntrypoints can only be created once a FlutterEngine is created.");
+      }
+      return new DartEntrypoint(flutterLoader.findAppBundlePath(), "main");
     }
 
     /** The path within the AssetManager where the app will look for assets. */
     @NonNull public final String pathToBundle;
+
+    /** The library or file location that contains the Dart entrypoint function. */
+    @Nullable public final String dartEntrypointLibrary;
 
     /** The name of a Dart function to execute. */
     @NonNull public final String dartEntrypointFunctionName;
@@ -264,6 +281,16 @@ public class DartExecutor implements BinaryMessenger {
     public DartEntrypoint(
         @NonNull String pathToBundle, @NonNull String dartEntrypointFunctionName) {
       this.pathToBundle = pathToBundle;
+      dartEntrypointLibrary = null;
+      this.dartEntrypointFunctionName = dartEntrypointFunctionName;
+    }
+
+    public DartEntrypoint(
+        @NonNull String pathToBundle,
+        @NonNull String dartEntrypointLibrary,
+        @NonNull String dartEntrypointFunctionName) {
+      this.pathToBundle = pathToBundle;
+      this.dartEntrypointLibrary = dartEntrypointLibrary;
       this.dartEntrypointFunctionName = dartEntrypointFunctionName;
     }
 

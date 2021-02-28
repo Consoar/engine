@@ -4,8 +4,12 @@
 
 #import <OCMock/OCMock.h>
 #import <XCTest/XCTest.h>
-#include "flutter/shell/platform/darwin/common/framework/Headers/FlutterMacros.h"
-#import "flutter/shell/platform/darwin/ios/framework/Headers/FlutterEngine.h"
+
+#import "flutter/common/settings.h"
+#import "flutter/shell/platform/darwin/common/framework/Headers/FlutterMacros.h"
+#import "flutter/shell/platform/darwin/ios/framework/Source/FlutterBinaryMessengerRelay.h"
+#import "flutter/shell/platform/darwin/ios/framework/Source/FlutterDartProject_Internal.h"
+#import "flutter/shell/platform/darwin/ios/framework/Source/FlutterEngine_Test.h"
 
 FLUTTER_ASSERT_ARC
 
@@ -77,6 +81,81 @@ FLUTTER_ASSERT_ARC
     engine = nil;
   }
   OCMVerify([plugin detachFromEngineForRegistrar:[OCMArg any]]);
+}
+
+- (void)testRunningInitialRouteSendsNavigationMessage {
+  id mockBinaryMessenger = OCMClassMock([FlutterBinaryMessengerRelay class]);
+
+  FlutterEngine* engine = [[FlutterEngine alloc] init];
+  [engine setBinaryMessenger:mockBinaryMessenger];
+
+  // Run with an initial route.
+  [engine runWithEntrypoint:FlutterDefaultDartEntrypoint initialRoute:@"test"];
+
+  // Now check that an encoded method call has been made on the binary messenger to set the
+  // initial route to "test".
+  FlutterMethodCall* setInitialRouteMethodCall =
+      [FlutterMethodCall methodCallWithMethodName:@"setInitialRoute" arguments:@"test"];
+  NSData* encodedSetInitialRouteMethod =
+      [[FlutterJSONMethodCodec sharedInstance] encodeMethodCall:setInitialRouteMethodCall];
+  OCMVerify([mockBinaryMessenger sendOnChannel:@"flutter/navigation"
+                                       message:encodedSetInitialRouteMethod]);
+}
+
+- (void)testPlatformViewsControllerRenderingMetalBackend {
+  FlutterEngine* engine = [[FlutterEngine alloc] init];
+  [engine run];
+  flutter::IOSRenderingAPI renderingApi = [engine platformViewsRenderingAPI];
+
+  XCTAssertEqual(renderingApi, flutter::IOSRenderingAPI::kMetal);
+}
+
+- (void)testPlatformViewsControllerRenderingSoftware {
+  auto settings = FLTDefaultSettingsForBundle();
+  settings.enable_software_rendering = true;
+  FlutterDartProject* project = [[FlutterDartProject alloc] initWithSettings:settings];
+  FlutterEngine* engine = [[FlutterEngine alloc] initWithName:@"foobar" project:project];
+  [engine run];
+  flutter::IOSRenderingAPI renderingApi = [engine platformViewsRenderingAPI];
+
+  XCTAssertEqual(renderingApi, flutter::IOSRenderingAPI::kSoftware);
+}
+
+- (void)testWaitForFirstFrameTimeout {
+  FlutterEngine* engine = [[FlutterEngine alloc] initWithName:@"foobar"];
+  [engine run];
+  XCTestExpectation* timeoutFirstFrame = [self expectationWithDescription:@"timeoutFirstFrame"];
+  [engine waitForFirstFrame:0.1
+                   callback:^(BOOL didTimeout) {
+                     if (timeoutFirstFrame) {
+                       [timeoutFirstFrame fulfill];
+                     }
+                   }];
+  [self waitForExpectationsWithTimeout:1 handler:nil];
+}
+
+- (void)testSpawn {
+  FlutterEngine* engine = [[FlutterEngine alloc] initWithName:@"foobar"];
+  [engine run];
+  FlutterEngine* spawn = [engine spawnWithEntrypoint:nil libraryURI:nil];
+  XCTAssertNotNil(spawn);
+}
+
+- (void)testDeallocNotification {
+  XCTestExpectation* deallocNotification = [self expectationWithDescription:@"deallocNotification"];
+  NSNotificationCenter* center = [NSNotificationCenter defaultCenter];
+  id<NSObject> observer;
+  @autoreleasepool {
+    FlutterEngine* engine = [[FlutterEngine alloc] initWithName:@"foobar"];
+    observer = [center addObserverForName:FlutterEngineWillDealloc
+                                   object:engine
+                                    queue:[NSOperationQueue mainQueue]
+                               usingBlock:^(NSNotification* note) {
+                                 [deallocNotification fulfill];
+                               }];
+  }
+  [self waitForExpectationsWithTimeout:1 handler:nil];
+  [center removeObserver:observer];
 }
 
 @end

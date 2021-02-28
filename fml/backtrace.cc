@@ -5,11 +5,16 @@
 #include "flutter/fml/backtrace.h"
 
 #include <cxxabi.h>
-#include <sstream>
-
 #include <dlfcn.h>
 #include <execinfo.h>
-#include <signal.h>
+
+#include <csignal>
+#include <sstream>
+
+#if OS_WIN
+#include <crtdbg.h>
+#include <debugapi.h>
+#endif
 
 #include "flutter/fml/logging.h"
 
@@ -43,6 +48,9 @@ static std::string GetSymbolName(void* symbol) {
   Dl_info info = {};
 
   if (::dladdr(symbol, &info) == 0) {
+    return kKUnknownFrameName;
+  }
+  if (info.dli_sname == nullptr) {
     return kKUnknownFrameName;
   }
 
@@ -126,6 +134,12 @@ static void ToggleSignalHandlers(bool set) {
 }
 
 void InstallCrashHandler() {
+#if OS_WIN
+  if (!IsDebuggerPresent()) {
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+  }
+#endif
   ToggleSignalHandlers(true);
 }
 

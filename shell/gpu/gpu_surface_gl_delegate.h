@@ -5,21 +5,24 @@
 #ifndef FLUTTER_SHELL_GPU_GPU_SURFACE_GL_DELEGATE_H_
 #define FLUTTER_SHELL_GPU_GPU_SURFACE_GL_DELEGATE_H_
 
+#include "flutter/common/graphics/gl_context_switch.h"
 #include "flutter/flow/embedded_views.h"
-#include "flutter/flow/gl_context_switch.h"
 #include "flutter/fml/macros.h"
-#include "flutter/shell/gpu/gpu_surface_delegate.h"
 #include "third_party/skia/include/core/SkMatrix.h"
 #include "third_party/skia/include/gpu/gl/GrGLInterface.h"
 
 namespace flutter {
 
-class GPUSurfaceGLDelegate : public GPUSurfaceDelegate {
- public:
-  ~GPUSurfaceGLDelegate() override;
+// A structure to represent the frame information which is passed to the
+// embedder when requesting a frame buffer object.
+struct GLFrameInfo {
+  uint32_t width;
+  uint32_t height;
+};
 
-  // |GPUSurfaceDelegate|
-  ExternalViewEmbedder* GetExternalViewEmbedder() override;
+class GPUSurfaceGLDelegate {
+ public:
+  ~GPUSurfaceGLDelegate();
 
   // Called to make the main GL context current on the current thread.
   virtual std::unique_ptr<GLContextResult> GLContextMakeCurrent() = 0;
@@ -30,16 +33,16 @@ class GPUSurfaceGLDelegate : public GPUSurfaceDelegate {
 
   // Called to present the main GL surface. This is only called for the main GL
   // context and not any of the contexts dedicated for IO.
-  virtual bool GLContextPresent() = 0;
+  virtual bool GLContextPresent(uint32_t fbo_id) = 0;
 
   // The ID of the main window bound framebuffer. Typically FBO0.
-  virtual intptr_t GLContextFBO() const = 0;
+  virtual intptr_t GLContextFBO(GLFrameInfo frame_info) const = 0;
 
   // The rendering subsystem assumes that the ID of the main window bound
   // framebuffer remains constant throughout. If this assumption in incorrect,
   // embedders are required to return true from this method. In such cases,
-  // GLContextFBO() will be called again to acquire the new FBO ID for rendering
-  // subsequent frames.
+  // GLContextFBO(frame_info) will be called again to acquire the new FBO ID for
+  // rendering subsequent frames.
   virtual bool GLContextFBOResetAfterPresent() const;
 
   // Indicates whether or not the surface supports pixel readback as used in
@@ -50,7 +53,7 @@ class GPUSurfaceGLDelegate : public GPUSurfaceDelegate {
   // flushed.
   virtual SkMatrix GLContextSurfaceTransformation() const;
 
-  sk_sp<const GrGLInterface> GetGLInterface() const;
+  virtual sk_sp<const GrGLInterface> GetGLInterface() const;
 
   // TODO(chinmaygarde): The presence of this method is to work around the fact
   // that not all platforms can accept a custom GL proc table. Migrate all

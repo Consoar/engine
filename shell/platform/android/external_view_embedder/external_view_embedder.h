@@ -12,6 +12,7 @@
 #include "flutter/shell/platform/android/context/android_context.h"
 #include "flutter/shell/platform/android/external_view_embedder/surface_pool.h"
 #include "flutter/shell/platform/android/jni/platform_view_android_jni.h"
+#include "flutter/shell/platform/android/surface/android_surface.h"
 #include "third_party/skia/include/core/SkPictureRecorder.h"
 
 namespace flutter {
@@ -29,9 +30,9 @@ namespace flutter {
 class AndroidExternalViewEmbedder final : public ExternalViewEmbedder {
  public:
   AndroidExternalViewEmbedder(
-      std::shared_ptr<AndroidContext> android_context,
+      const AndroidContext& android_context,
       std::shared_ptr<PlatformViewAndroidJNI> jni_facade,
-      const AndroidSurface::Factory& surface_factory);
+      std::shared_ptr<AndroidSurfaceFactory> surface_factory);
 
   // |ExternalViewEmbedder|
   void PrerollCompositeEmbeddedView(
@@ -45,8 +46,10 @@ class AndroidExternalViewEmbedder final : public ExternalViewEmbedder {
   std::vector<SkCanvas*> GetCurrentCanvases() override;
 
   // |ExternalViewEmbedder|
-  bool SubmitFrame(GrContext* context,
-                   std::unique_ptr<SurfaceFrame> frame) override;
+  void SubmitFrame(
+      GrDirectContext* context,
+      std::unique_ptr<SurfaceFrame> frame,
+      const std::shared_ptr<fml::SyncSwitch>& gpu_disable_sync_switch) override;
 
   // |ExternalViewEmbedder|
   PostPrerollResult PostPrerollAction(
@@ -58,7 +61,7 @@ class AndroidExternalViewEmbedder final : public ExternalViewEmbedder {
   // |ExternalViewEmbedder|
   void BeginFrame(
       SkISize frame_size,
-      GrContext* context,
+      GrDirectContext* context,
       double device_pixel_ratio,
       fml::RefPtr<fml::RasterThreadMerger> raster_thread_merger) override;
 
@@ -69,6 +72,8 @@ class AndroidExternalViewEmbedder final : public ExternalViewEmbedder {
   void EndFrame(
       bool should_resubmit_frame,
       fml::RefPtr<fml::RasterThreadMerger> raster_thread_merger) override;
+
+  bool SupportsDynamicThreadMerging() override;
 
   // Gets the rect based on the device pixel ratio of a platform view displayed
   // on the screen.
@@ -85,20 +90,16 @@ class AndroidExternalViewEmbedder final : public ExternalViewEmbedder {
   static const int kDefaultMergedLeaseDuration = 10;
 
   // Provides metadata to the Android surfaces.
-  const std::shared_ptr<AndroidContext> android_context_;
+  const AndroidContext& android_context_;
 
   // Allows to call methods in Java.
   const std::shared_ptr<PlatformViewAndroidJNI> jni_facade_;
 
   // Allows to create surfaces.
-  const AndroidSurface::Factory surface_factory_;
+  const std::shared_ptr<AndroidSurfaceFactory> surface_factory_;
 
   // Holds surfaces. Allows to recycle surfaces or allocate new ones.
   const std::unique_ptr<SurfacePool> surface_pool_;
-
-  // Whether the rasterizer task runner should run on the platform thread.
-  // When this is true, the current frame is cancelled and resubmitted.
-  bool should_run_rasterizer_on_platform_thread_ = false;
 
   // The size of the root canvas.
   SkISize frame_size_;
@@ -130,9 +131,12 @@ class AndroidExternalViewEmbedder final : public ExternalViewEmbedder {
   // Resets the state.
   void Reset();
 
+  // Whether the layer tree in the current frame has platform layers.
+  bool FrameHasPlatformLayers();
+
   // Creates a Surface when needed or recycles an existing one.
   // Finally, draws the picture on the frame's canvas.
-  std::unique_ptr<SurfaceFrame> CreateSurfaceIfNeeded(GrContext* context,
+  std::unique_ptr<SurfaceFrame> CreateSurfaceIfNeeded(GrDirectContext* context,
                                                       int64_t view_id,
                                                       sk_sp<SkPicture> picture,
                                                       const SkRect& rect);

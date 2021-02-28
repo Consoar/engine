@@ -5,14 +5,18 @@
 #ifndef FLUTTER_SHELL_PLATFORM_WINDOWS_WINDOW_BINDING_HANDLER_H_
 #define FLUTTER_SHELL_PLATFORM_WINDOWS_WINDOW_BINDING_HANDLER_H_
 
-#include "flutter/shell/platform/windows/public/flutter_windows.h"
+#include <windows.h>
 
 #include <string>
 #include <variant>
 
-#include <windows.h>
-
+#include "flutter/shell/platform/common/geometry.h"
+#include "flutter/shell/platform/windows/public/flutter_windows.h"
 #include "flutter/shell/platform/windows/window_binding_handler_delegate.h"
+
+#ifdef WINUWP
+#include <winrt/Windows.UI.Composition.h>
+#endif
 
 namespace flutter {
 
@@ -24,8 +28,14 @@ struct PhysicalWindowBounds {
   size_t height;
 };
 
-using WindowsRenderTarget = std::variant<
-    /*winrt::Windows::UI::Composition::SpriteVisual, */ HWND>;
+#ifdef WINUWP
+using WindowsRenderTarget =
+    std::variant<winrt::Windows::UI::Composition::SpriteVisual,
+                 winrt::Windows::UI::Core::CoreWindow,
+                 HWND>;
+#else
+using WindowsRenderTarget = std::variant<HWND>;
+#endif
 
 // Abstract class for binding Windows platform windows to Flutter views.
 class WindowBindingHandler {
@@ -45,6 +55,16 @@ class WindowBindingHandler {
 
   // Returns the bounds of the backing window in physical pixels.
   virtual PhysicalWindowBounds GetPhysicalWindowBounds() = 0;
+
+  // Invoked after the window has been resized.
+  virtual void OnWindowResized() = 0;
+
+  // Sets the cursor that should be used when the mouse is over the Flutter
+  // content. See mouse_cursor.dart for the values and meanings of cursor_name.
+  virtual void UpdateFlutterCursor(const std::string& cursor_name) = 0;
+
+  // Invoked when the cursor/composing rect has been updated in the framework.
+  virtual void OnCursorRectUpdated(const Rect& rect) = 0;
 };
 
 }  // namespace flutter

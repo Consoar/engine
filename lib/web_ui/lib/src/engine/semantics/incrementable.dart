@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @dart = 2.12
 part of engine;
 
 /// Adds increment/decrement event handling to a semantics object.
@@ -45,18 +46,18 @@ class Incrementable extends RoleManager {
     _element.setAttribute('role', 'slider');
 
     _element.addEventListener('change', (_) {
-      if (_element.disabled) {
+      if (_element.disabled!) {
         return;
       }
       _pendingResync = true;
-      final int newInputValue = int.parse(_element.value);
+      final int newInputValue = int.parse(_element.value!);
       if (newInputValue > _currentSurrogateValue) {
         _currentSurrogateValue += 1;
-        window.invokeOnSemanticsAction(
+        EnginePlatformDispatcher.instance.invokeOnSemanticsAction(
             semanticsObject.id, ui.SemanticsAction.increase, null);
       } else if (newInputValue < _currentSurrogateValue) {
         _currentSurrogateValue -= 1;
-        window.invokeOnSemanticsAction(
+        EnginePlatformDispatcher.instance.invokeOnSemanticsAction(
             semanticsObject.id, ui.SemanticsAction.decrease, null);
       }
     });
@@ -84,7 +85,7 @@ class Incrementable extends RoleManager {
 
   void _enableBrowserGestureHandling() {
     assert(semanticsObject.owner.gestureMode == GestureMode.browserGestures);
-    if (!_element.disabled) {
+    if (!_element.disabled!) {
       return;
     }
     _element.disabled = false;
@@ -123,7 +124,7 @@ class Incrementable extends RoleManager {
   }
 
   void _disableBrowserGestureHandling() {
-    if (_element.disabled) {
+    if (_element.disabled!) {
       return;
     }
     _element.disabled = true;

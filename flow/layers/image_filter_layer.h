@@ -6,7 +6,6 @@
 #define FLUTTER_FLOW_LAYERS_IMAGE_FILTER_LAYER_H_
 
 #include "flutter/flow/layers/container_layer.h"
-
 #include "third_party/skia/include/core/SkImageFilter.h"
 
 namespace flutter {
@@ -14,6 +13,12 @@ namespace flutter {
 class ImageFilterLayer : public MergedContainerLayer {
  public:
   ImageFilterLayer(sk_sp<SkImageFilter> filter);
+
+#ifdef FLUTTER_ENABLE_DIFF_CONTEXT
+
+  void Diff(DiffContext* context, const Layer* old_layer) override;
+
+#endif  // FLUTTER_ENABLE_DIFF_CONTEXT
 
   void Preroll(PrerollContext* context, const SkMatrix& matrix) override;
 

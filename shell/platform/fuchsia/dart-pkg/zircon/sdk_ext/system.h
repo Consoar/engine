@@ -61,6 +61,8 @@ class System : public fml::RefCountedThreadSafe<System>,
 
   static Dart_Handle VmoMap(fml::RefPtr<Handle> vmo);
 
+  static uint64_t ClockGetMonotonic();
+
   static uint64_t ClockGet(uint32_t clock_id);
 
   static void RegisterNatives(tonic::DartLibraryNatives* natives);
@@ -69,9 +71,7 @@ class System : public fml::RefCountedThreadSafe<System>,
                                       fml::RefPtr<Handle> channel);
 
  private:
-  static void VmoMapFinalizer(void* isolate_callback_data,
-                              Dart_WeakPersistentHandle handle,
-                              void* peer);
+  static void VmoMapFinalizer(void* isolate_callback_data, void* peer);
 
   static zx::channel CloneChannelFromFileDescriptor(int fd);
 };

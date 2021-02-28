@@ -5,10 +5,15 @@
 package io.flutter.embedding.engine;
 
 import android.content.Context;
+import android.content.pm.PackageManager.NameNotFoundException;
+import android.content.res.AssetManager;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import io.flutter.FlutterInjector;
 import io.flutter.Log;
 import io.flutter.embedding.engine.dart.DartExecutor;
+import io.flutter.embedding.engine.dart.DartExecutor.DartEntrypoint;
+import io.flutter.embedding.engine.deferredcomponents.DeferredComponentManager;
 import io.flutter.embedding.engine.loader.FlutterLoader;
 import io.flutter.embedding.engine.plugins.PluginRegistry;
 import io.flutter.embedding.engine.plugins.activity.ActivityControlSurface;
@@ -18,6 +23,7 @@ import io.flutter.embedding.engine.plugins.service.ServiceControlSurface;
 import io.flutter.embedding.engine.renderer.FlutterRenderer;
 import io.flutter.embedding.engine.renderer.RenderSurface;
 import io.flutter.embedding.engine.systemchannels.AccessibilityChannel;
+import io.flutter.embedding.engine.systemchannels.DeferredComponentChannel;
 import io.flutter.embedding.engine.systemchannels.KeyEventChannel;
 import io.flutter.embedding.engine.systemchannels.LifecycleChannel;
 import io.flutter.embedding.engine.systemchannels.LocalizationChannel;
@@ -73,11 +79,12 @@ public class FlutterEngine {
   @NonNull private final FlutterJNI flutterJNI;
   @NonNull private final FlutterRenderer renderer;
   @NonNull private final DartExecutor dartExecutor;
-  @NonNull private final FlutterEnginePluginRegistry pluginRegistry;
+  @NonNull private final FlutterEngineConnectionRegistry pluginRegistry;
   @NonNull private final LocalizationPlugin localizationPlugin;
 
   // System channels.
   @NonNull private final AccessibilityChannel accessibilityChannel;
+  @NonNull private final DeferredComponentChannel deferredComponentChannel;
   @NonNull private final KeyEventChannel keyEventChannel;
   @NonNull private final LifecycleChannel lifecycleChannel;
   @NonNull private final LocalizationChannel localizationChannel;
@@ -108,6 +115,12 @@ public class FlutterEngine {
           platformViewsController.onPreEngineRestart();
           restorationChannel.clearData();
         }
+
+        @Override
+        public void onEngineWillDestroy() {
+          // This inner implementation doesn't do anything since FlutterEngine sent this
+          // notification in the first place. It's meant for external listeners.
+        }
       };
 
   /**
@@ -131,7 +144,8 @@ public class FlutterEngine {
    * <p>In order to pass Dart VM initialization arguments (see {@link
    * io.flutter.embedding.engine.FlutterShellArgs}) when creating the VM, manually set the
    * initialization arguments by calling {@link FlutterLoader#startInitialization(Context)} and
-   * {@link FlutterLoader#ensureInitializationComplete(Context, String[])}.
+   * {@link FlutterLoader#ensureInitializationComplete(Context, String[])} before constructing the
+   * engine.
    */
   public FlutterEngine(@NonNull Context context) {
     this(context, null);
@@ -143,7 +157,7 @@ public class FlutterEngine {
    * <p>If the Dart VM has already started, the given arguments will have no effect.
    */
   public FlutterEngine(@NonNull Context context, @Nullable String[] dartVmArgs) {
-    this(context, FlutterLoader.getInstance(), new FlutterJNI(), dartVmArgs, true);
+    this(context, /* flutterLoader */ null, new FlutterJNI(), dartVmArgs, true);
   }
 
   /**
@@ -158,7 +172,7 @@ public class FlutterEngine {
       boolean automaticallyRegisterPlugins) {
     this(
         context,
-        FlutterLoader.getInstance(),
+        /* flutterLoader */ null,
         new FlutterJNI(),
         dartVmArgs,
         automaticallyRegisterPlugins);
@@ -189,7 +203,7 @@ public class FlutterEngine {
       boolean waitForRestorationData) {
     this(
         context,
-        FlutterLoader.getInstance(),
+        /* flutterLoader */ null,
         new FlutterJNI(),
         new PlatformViewsController(),
         dartVmArgs,
@@ -206,7 +220,7 @@ public class FlutterEngine {
    */
   public FlutterEngine(
       @NonNull Context context,
-      @NonNull FlutterLoader flutterLoader,
+      @Nullable FlutterLoader flutterLoader,
       @NonNull FlutterJNI flutterJNI) {
     this(context, flutterLoader, flutterJNI, null, true);
   }
@@ -219,7 +233,7 @@ public class FlutterEngine {
    */
   public FlutterEngine(
       @NonNull Context context,
-      @NonNull FlutterLoader flutterLoader,
+      @Nullable FlutterLoader flutterLoader,
       @NonNull FlutterJNI flutterJNI,
       @Nullable String[] dartVmArgs,
       boolean automaticallyRegisterPlugins) {
@@ -238,7 +252,7 @@ public class FlutterEngine {
    */
   public FlutterEngine(
       @NonNull Context context,
-      @NonNull FlutterLoader flutterLoader,
+      @Nullable FlutterLoader flutterLoader,
       @NonNull FlutterJNI flutterJNI,
       @NonNull PlatformViewsController platformViewsController,
       @Nullable String[] dartVmArgs,
@@ -256,16 +270,26 @@ public class FlutterEngine {
   /** Fully configurable {@code FlutterEngine} constructor. */
   public FlutterEngine(
       @NonNull Context context,
-      @NonNull FlutterLoader flutterLoader,
+      @Nullable FlutterLoader flutterLoader,
       @NonNull FlutterJNI flutterJNI,
       @NonNull PlatformViewsController platformViewsController,
       @Nullable String[] dartVmArgs,
       boolean automaticallyRegisterPlugins,
       boolean waitForRestorationData) {
-    this.dartExecutor = new DartExecutor(flutterJNI, context.getAssets());
+    AssetManager assetManager;
+    try {
+      assetManager = context.createPackageContext(context.getPackageName(), 0).getAssets();
+    } catch (NameNotFoundException e) {
+      assetManager = context.getAssets();
+    }
+    this.dartExecutor = new DartExecutor(flutterJNI, assetManager);
     this.dartExecutor.onAttachedToJNI();
 
+    DeferredComponentManager deferredComponentManager =
+        FlutterInjector.instance().deferredComponentManager();
+
     accessibilityChannel = new AccessibilityChannel(dartExecutor, flutterJNI);
+    deferredComponentChannel = new DeferredComponentChannel(dartExecutor);
     keyEventChannel = new KeyEventChannel(dartExecutor);
     lifecycleChannel = new LifecycleChannel(dartExecutor);
     localizationChannel = new LocalizationChannel(dartExecutor);
@@ -277,16 +301,33 @@ public class FlutterEngine {
     systemChannel = new SystemChannel(dartExecutor);
     textInputChannel = new TextInputChannel(dartExecutor);
 
+    if (deferredComponentManager != null) {
+      deferredComponentManager.setDeferredComponentChannel(deferredComponentChannel);
+    }
+
     this.localizationPlugin = new LocalizationPlugin(context, localizationChannel);
 
     this.flutterJNI = flutterJNI;
-    flutterLoader.startInitialization(context.getApplicationContext());
-    flutterLoader.ensureInitializationComplete(context, dartVmArgs);
+    if (flutterLoader == null) {
+      flutterLoader = FlutterInjector.instance().flutterLoader();
+    }
+
+    if (!flutterJNI.isAttached()) {
+      flutterLoader.startInitialization(context.getApplicationContext());
+      flutterLoader.ensureInitializationComplete(context, dartVmArgs);
+    }
 
     flutterJNI.addEngineLifecycleListener(engineLifecycleListener);
     flutterJNI.setPlatformViewsController(platformViewsController);
     flutterJNI.setLocalizationPlugin(localizationPlugin);
-    attachToJni();
+    flutterJNI.setDeferredComponentManager(FlutterInjector.instance().deferredComponentManager());
+
+    // It should typically be a fresh, unattached JNI. But on a spawned engine, the JNI instance
+    // is already attached to a native shell. In that case, the Java FlutterEngine is created around
+    // an existing shell.
+    if (!flutterJNI.isAttached()) {
+      attachToJni();
+    }
 
     // TODO(mattcarroll): FlutterRenderer is temporally coupled to attach(). Remove that coupling if
     // possible.
@@ -296,7 +337,7 @@ public class FlutterEngine {
     this.platformViewsController.onAttachedToJNI();
 
     this.pluginRegistry =
-        new FlutterEnginePluginRegistry(context.getApplicationContext(), this, flutterLoader);
+        new FlutterEngineConnectionRegistry(context.getApplicationContext(), this, flutterLoader);
 
     if (automaticallyRegisterPlugins) {
       registerPlugins();
@@ -316,6 +357,36 @@ public class FlutterEngine {
   @SuppressWarnings("BooleanMethodIsAlwaysInverted")
   private boolean isAttachedToJni() {
     return flutterJNI.isAttached();
+  }
+
+  /**
+   * Create a second {@link FlutterEngine} based on this current one by sharing as much resources
+   * together as possible to minimize startup latency and memory cost.
+   *
+   * @param context is a Context used to create the {@link FlutterEngine}. Could be the same Context
+   *     as the current engine or a different one. Generally, only an application Context is needed
+   *     for the {@link FlutterEngine} and its dependencies.
+   * @param dartEntrypoint specifies the {@link DartEntrypoint} the new engine should run. It
+   *     doesn't need to be the same entrypoint as the current engine but must be built in the same
+   *     AOT or snapshot.
+   * @return a new {@link FlutterEngine}.
+   */
+  @NonNull
+  /*package*/ FlutterEngine spawn(
+      @NonNull Context context, @NonNull DartEntrypoint dartEntrypoint) {
+    if (!isAttachedToJni()) {
+      throw new IllegalStateException(
+          "Spawn can only be called on a fully constructed FlutterEngine");
+    }
+
+    FlutterJNI newFlutterJNI =
+        flutterJNI.spawn(
+            dartEntrypoint.dartEntrypointFunctionName, dartEntrypoint.dartEntrypointLibrary);
+    return new FlutterEngine(
+        context, // Context.
+        null, // FlutterLoader. A null value passed here causes the constructor to get it from the
+        // FlutterInjector.
+        newFlutterJNI); // FlutterJNI.
   }
 
   /**
@@ -356,12 +427,20 @@ public class FlutterEngine {
    */
   public void destroy() {
     Log.v(TAG, "Destroying.");
+    for (EngineLifecycleListener listener : engineLifecycleListeners) {
+      listener.onEngineWillDestroy();
+    }
     // The order that these things are destroyed is important.
     pluginRegistry.destroy();
     platformViewsController.onDetachedFromJNI();
     dartExecutor.onDetachedFromJNI();
     flutterJNI.removeEngineLifecycleListener(engineLifecycleListener);
+    flutterJNI.setDeferredComponentManager(null);
     flutterJNI.detachFromNativeAndReleaseResources();
+    if (FlutterInjector.instance().deferredComponentManager() != null) {
+      FlutterInjector.instance().deferredComponentManager().destroy();
+      deferredComponentChannel.setDeferredComponentManager(null);
+    }
   }
 
   /**
@@ -465,6 +544,12 @@ public class FlutterEngine {
     return settingsChannel;
   }
 
+  /** System channel that allows manual installation and state querying of deferred components. */
+  @NonNull
+  public DeferredComponentChannel getDeferredComponentChannel() {
+    return deferredComponentChannel;
+  }
+
   /** System channel that sends memory pressure warnings from Android to Flutter. */
   @NonNull
   public SystemChannel getSystemChannel() {
@@ -530,5 +615,11 @@ public class FlutterEngine {
   public interface EngineLifecycleListener {
     /** Lifecycle callback invoked before a hot restart of the Flutter engine. */
     void onPreEngineRestart();
+    /**
+     * Lifecycle callback invoked before the Flutter engine is destroyed.
+     *
+     * <p>For the duration of the call, the Flutter engine is still valid.
+     */
+    void onEngineWillDestroy();
   }
 }

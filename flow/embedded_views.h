@@ -1,7 +1,7 @@
 // Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-//
+
 #ifndef FLUTTER_FLOW_EMBEDDED_VIEWS_H_
 #define FLUTTER_FLOW_EMBEDDED_VIEWS_H_
 
@@ -10,6 +10,7 @@
 #include "flutter/flow/surface_frame.h"
 #include "flutter/fml/memory/ref_counted.h"
 #include "flutter/fml/raster_thread_merger.h"
+#include "flutter/fml/synchronization/sync_switch.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/core/SkPoint.h"
@@ -123,7 +124,7 @@ class Mutator {
 //
 // For example consider the following stack: [T1, T2, T3], where T1 is the top
 // of the stack and T3 is the bottom of the stack. Applying this mutators stack
-// to a platform view P1 will result in T1(T2(T2(P1))).
+// to a platform view P1 will result in T1(T2(T3(P1))).
 class MutatorsStack {
  public:
   MutatorsStack() = default;
@@ -242,7 +243,17 @@ class EmbeddedViewParams {
   SkRect final_bounding_rect_;
 };
 
-enum class PostPrerollResult { kResubmitFrame, kSuccess };
+enum class PostPrerollResult {
+  // Frame has successfully rasterized.
+  kSuccess,
+  // Frame is submitted twice. This is currently only used when
+  // thread configuration change occurs.
+  kResubmitFrame,
+  // Frame is dropped and a new frame with the same layer tree is
+  // attempted. This is currently only used when thread configuration
+  // change occurs.
+  kSkipAndRetryFrame
+};
 
 // Facilitates embedding of platform views within the flow layer tree.
 //
@@ -266,9 +277,13 @@ class ExternalViewEmbedder {
   // sets the stage for the next pre-roll.
   virtual void CancelFrame() = 0;
 
+  // Indicates the begining of a frame.
+  //
+  // The `raster_thread_merger` will be null if |SupportsDynamicThreadMerging|
+  // returns false.
   virtual void BeginFrame(
       SkISize frame_size,
-      GrContext* context,
+      GrDirectContext* context,
       double device_pixel_ratio,
       fml::RefPtr<fml::RasterThreadMerger> raster_thread_merger) = 0;
 
@@ -295,8 +310,10 @@ class ExternalViewEmbedder {
   // This method can mutate the root Skia canvas before submitting the frame.
   //
   // It can also allocate frames for overlay surfaces to compose hybrid views.
-  virtual bool SubmitFrame(GrContext* context,
-                           std::unique_ptr<SurfaceFrame> frame);
+  virtual void SubmitFrame(
+      GrDirectContext* context,
+      std::unique_ptr<SurfaceFrame> frame,
+      const std::shared_ptr<fml::SyncSwitch>& gpu_disable_sync_switch);
 
   // This method provides the embedder a way to do additional tasks after
   // |SubmitFrame|. For example, merge task runners if `should_resubmit_frame`
@@ -306,9 +323,19 @@ class ExternalViewEmbedder {
   // A new frame on the platform thread starts immediately. If the GPU thread
   // still has some task running, there could be two frames being rendered
   // concurrently, which causes undefined behaviors.
+  //
+  // The `raster_thread_merger` will be null if |SupportsDynamicThreadMerging|
+  // returns false.
   virtual void EndFrame(
       bool should_resubmit_frame,
       fml::RefPtr<fml::RasterThreadMerger> raster_thread_merger) {}
+
+  // Whether the embedder should support dynamic thread merging.
+  //
+  // Returning `true` results a |RasterThreadMerger| instance to be created.
+  // * See also |BegineFrame| and |EndFrame| for getting the
+  // |RasterThreadMerger| instance.
+  virtual bool SupportsDynamicThreadMerging();
 
   FML_DISALLOW_COPY_AND_ASSIGN(ExternalViewEmbedder);
 

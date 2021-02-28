@@ -4,13 +4,15 @@
 
 #include "flutter/lib/ui/text/paragraph_builder.h"
 
+#include <cstring>
+
 #include "flutter/common/settings.h"
 #include "flutter/common/task_runners.h"
 #include "flutter/fml/logging.h"
 #include "flutter/fml/task_runner.h"
 #include "flutter/lib/ui/text/font_collection.h"
 #include "flutter/lib/ui/ui_dart_state.h"
-#include "flutter/lib/ui/window/window.h"
+#include "flutter/lib/ui/window/platform_configuration.h"
 #include "flutter/third_party/txt/src/txt/font_style.h"
 #include "flutter/third_party/txt/src/txt/font_weight.h"
 #include "flutter/third_party/txt/src/txt/paragraph_style.h"
@@ -118,6 +120,7 @@ const int sFontSizeIndex = 3;
 const int sHeightIndex = 4;
 const int sLeadingIndex = 5;
 const int sForceStrutHeightIndex = 6;
+const int sForceStrutHeightValueIndex = 7;
 
 const int sFontWeightMask = 1 << sFontWeightIndex;
 const int sFontStyleMask = 1 << sFontStyleIndex;
@@ -126,6 +129,7 @@ const int sFontSizeMask = 1 << sFontSizeIndex;
 const int sHeightMask = 1 << sHeightIndex;
 const int sLeadingMask = 1 << sLeadingIndex;
 const int sForceStrutHeightMask = 1 << sForceStrutHeightIndex;
+const int sForceStrutHeightValueMask = 1 << sForceStrutHeightValueIndex;
 
 }  // namespace
 
@@ -169,7 +173,7 @@ fml::RefPtr<ParagraphBuilder> ParagraphBuilder::create(
 // parameter passed directly.
 void decodeStrut(Dart_Handle strut_data,
                  const std::vector<std::string>& strut_font_families,
-                 txt::ParagraphStyle& paragraph_style) {
+                 txt::ParagraphStyle& paragraph_style) {  // NOLINT
   if (strut_data == Dart_Null()) {
     return;
   }
@@ -213,8 +217,8 @@ void decodeStrut(Dart_Handle strut_data,
     paragraph_style.strut_leading = float_data[float_count++];
   }
   if (mask & sForceStrutHeightMask) {
-    // The boolean is stored as the last bit in the bitmask.
-    paragraph_style.force_strut_height = (mask & 1 << 7) != 0;
+    paragraph_style.force_strut_height =
+        (mask & sForceStrutHeightValueMask) != 0;
   }
 
   if (mask & sFontFamilyMask) {
@@ -288,23 +292,35 @@ ParagraphBuilder::ParagraphBuilder(
     style.locale = locale;
   }
 
-  FontCollection& font_collection =
-      UIDartState::Current()->window()->client()->GetFontCollection();
+  FontCollection& font_collection = UIDartState::Current()
+                                        ->platform_configuration()
+                                        ->client()
+                                        ->GetFontCollection();
+
+  typedef std::unique_ptr<txt::ParagraphBuilder> (*ParagraphBuilderFactory)(
+      const txt::ParagraphStyle& style,
+      std::shared_ptr<txt::FontCollection> font_collection);
+  ParagraphBuilderFactory factory = txt::ParagraphBuilder::CreateTxtBuilder;
 
 #if FLUTTER_ENABLE_SKSHAPER
-#define FLUTTER_PARAGRAPH_BUILDER txt::ParagraphBuilder::CreateSkiaBuilder
+#if FLUTTER_ALWAYS_USE_SKSHAPER
+  bool enable_skparagraph = true;
 #else
-#define FLUTTER_PARAGRAPH_BUILDER txt::ParagraphBuilder::CreateTxtBuilder
+  bool enable_skparagraph = UIDartState::Current()->enable_skparagraph();
 #endif
+  if (enable_skparagraph) {
+    factory = txt::ParagraphBuilder::CreateSkiaBuilder;
+  }
+#endif  // FLUTTER_ENABLE_SKSHAPER
 
-  m_paragraphBuilder =
-      FLUTTER_PARAGRAPH_BUILDER(style, font_collection.GetFontCollection());
+  m_paragraphBuilder = factory(style, font_collection.GetFontCollection());
 }
 
 ParagraphBuilder::~ParagraphBuilder() = default;
 
-void decodeTextShadows(Dart_Handle shadows_data,
-                       std::vector<txt::TextShadow>& decoded_shadows) {
+void decodeTextShadows(
+    Dart_Handle shadows_data,
+    std::vector<txt::TextShadow>& decoded_shadows) {  // NOLINT
   decoded_shadows.clear();
 
   tonic::DartByteData byte_data(shadows_data);
@@ -328,7 +344,7 @@ void decodeTextShadows(Dart_Handle shadows_data,
 }
 
 void decodeFontFeatures(Dart_Handle font_features_data,
-                        txt::FontFeatures& font_features) {
+                        txt::FontFeatures& font_features) {  // NOLINT
   tonic::DartByteData byte_data(font_features_data);
   FML_CHECK(byte_data.length_in_bytes() % kBytesPerFontFeature == 0);
 
@@ -398,21 +414,26 @@ void ParagraphBuilder::pushStyle(tonic::Int32List& encoded,
 
   if (mask & (tsFontWeightMask | tsFontStyleMask | tsFontSizeMask |
               tsLetterSpacingMask | tsWordSpacingMask)) {
-    if (mask & tsFontWeightMask)
+    if (mask & tsFontWeightMask) {
       style.font_weight =
           static_cast<txt::FontWeight>(encoded[tsFontWeightIndex]);
+    }
 
-    if (mask & tsFontStyleMask)
+    if (mask & tsFontStyleMask) {
       style.font_style = static_cast<txt::FontStyle>(encoded[tsFontStyleIndex]);
+    }
 
-    if (mask & tsFontSizeMask)
+    if (mask & tsFontSizeMask) {
       style.font_size = fontSize;
+    }
 
-    if (mask & tsLetterSpacingMask)
+    if (mask & tsLetterSpacingMask) {
       style.letter_spacing = letterSpacing;
+    }
 
-    if (mask & tsWordSpacingMask)
+    if (mask & tsWordSpacingMask) {
       style.word_spacing = wordSpacing;
+    }
   }
 
   if (mask & tsHeightMask) {
@@ -463,8 +484,9 @@ void ParagraphBuilder::pop() {
 }
 
 Dart_Handle ParagraphBuilder::addText(const std::u16string& text) {
-  if (text.empty())
+  if (text.empty()) {
     return Dart_Null();
+  }
 
   // Use ICU to validate the UTF-16 input.  Calling u_strToUTF8 with a null
   // output buffer will return U_BUFFER_OVERFLOW_ERROR if the input is well
@@ -472,8 +494,9 @@ Dart_Handle ParagraphBuilder::addText(const std::u16string& text) {
   const UChar* text_ptr = reinterpret_cast<const UChar*>(text.data());
   UErrorCode error_code = U_ZERO_ERROR;
   u_strToUTF8(nullptr, 0, nullptr, text_ptr, text.size(), &error_code);
-  if (error_code != U_BUFFER_OVERFLOW_ERROR)
+  if (error_code != U_BUFFER_OVERFLOW_ERROR) {
     return tonic::ToDart("string is not well-formed UTF-16");
+  }
 
   m_paragraphBuilder->AddText(text);
 

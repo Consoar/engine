@@ -30,7 +30,7 @@ class EmbedderExternalViewEmbedder final : public ExternalViewEmbedder {
  public:
   using CreateRenderTargetCallback =
       std::function<std::unique_ptr<EmbedderRenderTarget>(
-          GrContext* context,
+          GrDirectContext* context,
           const FlutterBackingStoreConfig& config)>;
   using PresentCallback =
       std::function<bool(const std::vector<const FlutterLayer*>& layers)>;
@@ -39,6 +39,11 @@ class EmbedderExternalViewEmbedder final : public ExternalViewEmbedder {
   //----------------------------------------------------------------------------
   /// @brief      Creates an external view embedder used by the generic embedder
   ///             API.
+  ///
+  /// @param[in] avoid_backing_store_cache If set, create_render_target callback
+  ///                                      will beinvoked every frame for every
+  ///                                      engine composited layer. The result
+  ///                                      will not cached.
   ///
   /// @param[in]  create_render_target_callback
   ///                                     The render target callback used to
@@ -49,6 +54,7 @@ class EmbedderExternalViewEmbedder final : public ExternalViewEmbedder {
   ///                                     embedder for presentation.
   ///
   EmbedderExternalViewEmbedder(
+      bool avoid_backing_store_cache,
       const CreateRenderTargetCallback& create_render_target_callback,
       const PresentCallback& present_callback);
 
@@ -75,7 +81,7 @@ class EmbedderExternalViewEmbedder final : public ExternalViewEmbedder {
   // |ExternalViewEmbedder|
   void BeginFrame(
       SkISize frame_size,
-      GrContext* context,
+      GrDirectContext* context,
       double device_pixel_ratio,
       fml::RefPtr<fml::RasterThreadMerger> raster_thread_merger) override;
 
@@ -91,13 +97,16 @@ class EmbedderExternalViewEmbedder final : public ExternalViewEmbedder {
   SkCanvas* CompositeEmbeddedView(int view_id) override;
 
   // |ExternalViewEmbedder|
-  bool SubmitFrame(GrContext* context,
-                   std::unique_ptr<SurfaceFrame> frame) override;
+  void SubmitFrame(
+      GrDirectContext* context,
+      std::unique_ptr<SurfaceFrame> frame,
+      const std::shared_ptr<fml::SyncSwitch>& gpu_disable_sync_switch) override;
 
   // |ExternalViewEmbedder|
   SkCanvas* GetRootCanvas() override;
 
  private:
+  const bool avoid_backing_store_cache_;
   const CreateRenderTargetCallback create_render_target_callback_;
   const PresentCallback present_callback_;
   SurfaceTransformationCallback surface_transformation_callback_;

@@ -23,7 +23,7 @@ using Embedder11yTest = testing::EmbedderTest;
 
 // TODO(52372): De-flake and re-enable.
 TEST_F(Embedder11yTest, DISABLED_A11yTreeIsConsistent) {
-  auto& context = GetEmbedderContext();
+  auto& context = GetEmbedderContext(EmbedderTestContextType::kOpenGLContext);
 
   fml::AutoResetWaitableEvent latch;
 

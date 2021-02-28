@@ -4,11 +4,12 @@
 
 #define FML_USED_ON_EMBEDDER
 
+#include "flutter/shell/common/animator.h"
+
 #include <functional>
 #include <future>
 #include <memory>
 
-#include "flutter/shell/common/animator.h"
 #include "flutter/shell/common/shell_test.h"
 #include "flutter/shell/common/shell_test_platform_view.h"
 #include "flutter/testing/testing.h"
@@ -50,18 +51,14 @@ TEST_F(ShellTest, VSyncTargetTime) {
     fml::MessageLoop::EnsureInitializedForCurrentThread();
 
     shell = Shell::Create(
-        task_runners, settings,
+        flutter::PlatformData(), task_runners, settings,
         [vsync_clock, &create_vsync_waiter](Shell& shell) {
           return ShellTestPlatformView::Create(
               shell, shell.GetTaskRunners(), vsync_clock,
               std::move(create_vsync_waiter),
               ShellTestPlatformView::BackendType::kDefaultBackend, nullptr);
         },
-        [](Shell& shell) {
-          return std::make_unique<Rasterizer>(
-              shell, shell.GetTaskRunners(),
-              shell.GetIsGpuDisabledSyncSwitch());
-        });
+        [](Shell& shell) { return std::make_unique<Rasterizer>(shell); });
     ASSERT_TRUE(DartVMRef::IsInstanceRunning());
 
     auto configuration = RunConfiguration::InferFromSettings(settings);

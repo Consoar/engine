@@ -4,13 +4,19 @@
 
 // @dart = 2.6
 import 'dart:html' as html;
+import 'dart:js' as js;
 import 'dart:js_util' as js_util;
 
+import 'package:test/bootstrap/browser.dart';
 import 'package:test/test.dart';
 import 'package:ui/src/engine.dart';
 import 'package:ui/ui.dart';
 
 void main() {
+  internalBootstrapBrowserTest(() => testMain);
+}
+
+void testMain() {
   setUp(() {
     Profiler.isBenchmarkMode = true;
     Profiler.ensureInitialized();
@@ -55,14 +61,13 @@ void main() {
     });
     expect(
       () => Profiler.instance.benchmark('foo', 123),
-      throwsA(isA<TypeError>()),
+      throwsA(isA<NoSuchMethodError>()),
     );
     expect(data, isEmpty);
 
     // Not even a callback.
-    jsOnBenchmark('string');
     expect(
-      () => Profiler.instance.benchmark('foo', 123),
+      () => jsOnBenchmark('string'),
       throwsA(isA<TypeError>()),
     );
   });
@@ -97,5 +102,5 @@ class BenchmarkDatapoint {
 }
 
 void jsOnBenchmark(dynamic listener) {
-  js_util.setProperty(html.window, '_flutter_internal_on_benchmark', listener);
+  js_util.setProperty(html.window, '_flutter_internal_on_benchmark', listener != null ? js.allowInterop(listener) : null);
 }

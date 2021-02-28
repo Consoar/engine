@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// @dart = 2.6
 part of zircon;
 
 // ignore_for_file: native_function_body_in_non_sdk_code
@@ -21,6 +20,8 @@ class Handle extends NativeFieldWrapperClass2 {
   static Handle _createInvalid() native 'Handle_CreateInvalid';
 
   int get handle native 'Handle_handle';
+
+  int get koid native 'Handle_koid';
 
   @override
   String toString() => 'Handle($handle)';

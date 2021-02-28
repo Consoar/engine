@@ -8,12 +8,16 @@ import 'dart:js_util' as js_util;
 import 'dart:typed_data';
 
 import 'package:quiver/testing/async.dart';
+import 'package:test/bootstrap/browser.dart';
+import 'package:test/test.dart';
 import 'package:ui/src/engine.dart';
 import 'package:ui/ui.dart' as ui;
 
-import 'package:test/test.dart';
-
 void main() {
+  internalBootstrapBrowserTest(() => testMain);
+}
+
+void testMain() {
   group('Keyboard', () {
     /// Used to save and restore [ui.window.onPlatformMessage] after each test.
     ui.PlatformMessageCallback savedCallback;
@@ -222,13 +226,15 @@ void main() {
       expect(count, 2);
     });
 
-    test('prevents default when "Tab" is pressed', () {
+    test('prevents default when key is handled by the framework', () {
       Keyboard.initialize();
 
       int count = 0;
       ui.window.onPlatformMessage = (String channel, ByteData data,
           ui.PlatformMessageResponseCallback callback) {
         count += 1;
+        ByteData response = const JSONMessageCodec().encodeMessage(<String, dynamic>{'handled': true});
+        callback(response);
       };
 
       final html.KeyboardEvent event = dispatchKeyboardEvent(
@@ -238,6 +244,29 @@ void main() {
       );
 
       expect(event.defaultPrevented, isTrue);
+      expect(count, 1);
+
+      Keyboard.instance.dispose();
+    });
+
+    test("Doesn't prevent default when key is not handled by the framework", () {
+      Keyboard.initialize();
+
+      int count = 0;
+      ui.window.onPlatformMessage = (String channel, ByteData data,
+          ui.PlatformMessageResponseCallback callback) {
+        count += 1;
+        ByteData response = const JSONMessageCodec().encodeMessage(<String, dynamic>{'handled': false});
+        callback(response);
+      };
+
+      final html.KeyboardEvent event = dispatchKeyboardEvent(
+        'keydown',
+        key: 'Tab',
+        code: 'Tab',
+      );
+
+      expect(event.defaultPrevented, isFalse);
       expect(count, 1);
 
       Keyboard.instance.dispose();
@@ -274,6 +303,8 @@ void main() {
       ui.window.onPlatformMessage = (String channel, ByteData data,
           ui.PlatformMessageResponseCallback callback) {
         count += 1;
+        ByteData response = const JSONMessageCodec().encodeMessage(<String, dynamic>{'handled': true});
+        callback(response);
       };
 
       useTextEditingElement((html.Element element) {
@@ -469,18 +500,37 @@ void main() {
         }
         messages.clear();
 
-        // When repeat events stop for a long-enough period of time, a keyup
-        // should be synthesized.
+        Keyboard.instance.dispose();
+      },
+    );
+
+    testFakeAsync(
+      'do not synthesize keyup when keys are not affected by meta modifiers',
+      (FakeAsync async) {
+        Keyboard.initialize();
+
+        List<Map<String, dynamic>> messages = <Map<String, dynamic>>[];
+        ui.window.onPlatformMessage = (String channel, ByteData data,
+            ui.PlatformMessageResponseCallback callback) {
+          messages.add(const JSONMessageCodec().decodeMessage(data));
+        };
+
+        dispatchKeyboardEvent(
+          'keydown',
+          key: 'i',
+          code: 'KeyI',
+        );
+        dispatchKeyboardEvent(
+          'keydown',
+          key: 'o',
+          code: 'KeyO',
+        );
+        messages.clear();
+
+        // Wait for a long-enough period of time and no events
+        // should be synthesized
         async.elapse(Duration(seconds: 3));
-        expect(messages, <Map<String, dynamic>>[
-          <String, dynamic>{
-            'type': 'keyup',
-            'keymap': 'web',
-            'key': 'i',
-            'code': 'KeyI',
-            'metaState': 0x0,
-          }
-        ]);
+        expect(messages, hasLength(0));
 
         Keyboard.instance.dispose();
       },

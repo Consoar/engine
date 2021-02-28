@@ -3,7 +3,8 @@
 // found in the LICENSE file.
 
 #include "flutter/shell/common/shell_test_platform_view_vulkan.h"
-#include "flutter/shell/common/persistent_cache.h"
+
+#include "flutter/common/graphics/persistent_cache.h"
 #include "flutter/vulkan/vulkan_utilities.h"
 
 namespace flutter {
@@ -36,6 +37,12 @@ void ShellTestPlatformViewVulkan::SimulateVSync() {
 std::unique_ptr<Surface> ShellTestPlatformViewVulkan::CreateRenderingSurface() {
   return std::make_unique<OffScreenSurface>(proc_table_,
                                             shell_test_external_view_embedder_);
+}
+
+// |PlatformView|
+std::shared_ptr<ExternalViewEmbedder>
+ShellTestPlatformViewVulkan::CreateExternalViewEmbedder() {
+  return shell_test_external_view_embedder_;
 }
 
 // |PlatformView|
@@ -113,10 +120,11 @@ bool ShellTestPlatformViewVulkan::OffScreenSurface::CreateSkiaGrContext() {
   PersistentCache::MarkStrategySet();
   options.fPersistentCache = PersistentCache::GetCacheForProcess();
 
-  sk_sp<GrContext> context = GrContext::MakeVulkan(backend_context, options);
+  sk_sp<GrDirectContext> context =
+      GrDirectContext::MakeVulkan(backend_context, options);
 
   if (context == nullptr) {
-    FML_DLOG(ERROR) << "Failed to create GrContext";
+    FML_DLOG(ERROR) << "Failed to create GrDirectContext";
     return false;
   }
 
@@ -179,7 +187,7 @@ ShellTestPlatformViewVulkan::OffScreenSurface::AcquireFrame(
                                         std::move(callback));
 }
 
-GrContext* ShellTestPlatformViewVulkan::OffScreenSurface::GetContext() {
+GrDirectContext* ShellTestPlatformViewVulkan::OffScreenSurface::GetContext() {
   return context_.get();
 }
 
@@ -188,11 +196,6 @@ SkMatrix ShellTestPlatformViewVulkan::OffScreenSurface::GetRootTransformation()
   SkMatrix matrix;
   matrix.reset();
   return matrix;
-}
-
-flutter::ExternalViewEmbedder*
-ShellTestPlatformViewVulkan::OffScreenSurface::GetExternalViewEmbedder() {
-  return shell_test_external_view_embedder_.get();
 }
 
 }  // namespace testing

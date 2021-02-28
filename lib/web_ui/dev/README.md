@@ -7,7 +7,7 @@
 `felt` supports multiple commands as follows:
 
 1. **`felt check-licenses`**: Checks that all Dart and JS source code files contain the correct license headers.
-2. **`felt test`**: Runs all or some tests depending on the passed arguments.
+2. **`felt test`**: Runs all or some tests depending on the passed arguments. It supports a watch mode for convenience.
 3. **`felt build`**: Builds the engine locally so it can be used by Flutter apps. It also supports a watch mode for more convenience.
 
 You could also run `felt help` or `felt help <command>` to get more information about the available commands and arguments.
@@ -31,19 +31,9 @@ If you don't want to add `felt` to your path, you can still invoke it using a re
 
 ## Speeding up your builds and tests
 
-You can speed up `ninja` and `dart2js` by adding parallelism and taking advantage of more cores.
-
-To speed up ninja pass `-j` to specify the desired level of parallelism, like so:
-
-```
-felt build [-w] -j 100
-```
-
 If you are a Google employee, you can use an internal instance of Goma to parallelize your builds. Because Goma compiles code on remote servers, this option is effective even on low-powered laptops.
 
-By default, when compiling Dart code to JavaScript, we use 4 `dart2js` workers.
-If you need to increase or reduce the number of workers, set the `BUILD_MAX_WORKERS_PER_TASK`
-environment variable to the desired number.
+By default, when compiling Dart code to JavaScript, we use 8 `dart2js` workers.
 
 ## Running web engine tests
 
@@ -51,6 +41,18 @@ To run all tests on Chrome. This will run both integration tests and the unit te
 
 ```
 felt test
+```
+
+To run a specific test:
+
+```
+felt test test/engine/util_test.dart
+```
+
+To enable watch mode so that the test re-runs on every change:
+
+```
+felt test --watch test/engine/util_test.dart
 ```
 
 To run unit tests only:
@@ -142,6 +144,7 @@ flutter/goldens updating the screenshots. Then update this file pointing to
 the new revision.
 
 ## Developing the `felt` tool
+
 If you are making changes in the `felt` tool itself, you need to be aware of Dart snapshots. We create a Dart snapshot of the `felt` tool to make the startup faster.
 
 To make sure you are running the `felt` tool with your changes included, you would need to stop using the snapshot. This can be achived through the environment variable `FELT_USE_SNAPSHOT`:
@@ -157,3 +160,34 @@ FELT_USE_SNAPSHOT=0 felt <command>
 ```
 
 _**Note**: if `FELT_USE_SNAPSHOT` is omitted or has any value other than "false" or "0", the snapshot mode will be enabled._
+
+## Upgrade Browser Version
+
+Since the engine code and infra recipes do not live in the same repository there are few steps to follow in order to upgrade a browser's version. For now these instructins are most relevant to Chrome.
+
+1. Dowload the binaries for the new browser/driver for each operaing system (macOS, linux, windows).
+2. Create CIPD packages for these packages. (More documentation is available for Googlers. go/cipd-flutter-web)
+3. Update the version in this repo. Do this by changing the related fields in `browser_lock.yaml` file.
+
+Note that for LUCI builders, for Chrome both unit and integration tests are using the same browser. (For Firefox [issue](https://github.com/flutter/flutter/issues/71617)
+
+Some useful links:
+
+1. For Chrome downloads [link](https://commondatastorage.googleapis.com/chromium-browser-snapshots/index.html)
+2. Browser and driver CIPD [packages](https://chrome-infra-packages.appspot.com/p/flutter_internal) (Note: Access rights are restricted for these packages.)
+3. LUCI web [recipe](https://flutter.googlesource.com/recipes/+/refs/heads/master/recipes/web_engine.py)
+4. More general reading on CIPD packages [link](https://chromium.googlesource.com/chromium/src.git/+/master/docs/cipd.md#What-is-CIPD)
+
+## Troubleshooting
+
+### Can't load Kernel binary: Invalid kernel binary format version.
+
+Some times `.dart_tool` cache invalidation fails, and you'll end up with a cached version of `felt` that is not compatible with the Dart SDK that you're using.
+
+In that case, any invocation to `felt` will fail with:
+
+`Can't load Kernel binary: Invalid kernel binary format version.`
+
+The solution is to delete the cached `felt.snapshot` files within `engine/src/flutter/lib/web_ui`:
+
+**`rm .dart_tool/felt.snapshot*`**

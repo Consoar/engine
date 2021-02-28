@@ -4,7 +4,6 @@
 
 package io.flutter.embedding.android;
 
-import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -15,6 +14,7 @@ import android.hardware.HardwareBuffer;
 import android.media.Image;
 import android.media.Image.Plane;
 import android.media.ImageReader;
+import android.util.AttributeSet;
 import android.view.Surface;
 import android.view.View;
 import androidx.annotation.NonNull;
@@ -22,6 +22,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import io.flutter.embedding.engine.renderer.FlutterRenderer;
 import io.flutter.embedding.engine.renderer.RenderSurface;
+import java.nio.ByteBuffer;
 
 /**
  * Paints a Flutter UI provided by an {@link android.media.ImageReader} onto a {@link
@@ -35,11 +36,9 @@ import io.flutter.embedding.engine.renderer.RenderSurface;
  * an {@link android.media.Image} and renders it to the {@link android.graphics.Canvas} in {@code
  * onDraw}.
  */
-@SuppressLint("ViewConstructor")
 @TargetApi(19)
 public class FlutterImageView extends View implements RenderSurface {
   @NonNull private ImageReader imageReader;
-  @Nullable private Image nextImage;
   @Nullable private Image currentImage;
   @Nullable private Bitmap currentBitmap;
   @Nullable private FlutterRenderer flutterRenderer;
@@ -55,13 +54,6 @@ public class FlutterImageView extends View implements RenderSurface {
   /** The kind of surface. */
   private SurfaceKind kind;
 
-  /**
-   * The number of images acquired from the current {@link android.media.ImageReader} that are
-   * waiting to be painted. This counter is decreased after calling {@link
-   * android.media.Image#close()}.
-   */
-  private int pendingImages = 0;
-
   /** Whether the view is attached to the Flutter render. */
   private boolean isAttachedToFlutterRenderer = false;
 
@@ -70,14 +62,20 @@ public class FlutterImageView extends View implements RenderSurface {
    * the Flutter UI.
    */
   public FlutterImageView(@NonNull Context context, int width, int height, SurfaceKind kind) {
-    super(context, null);
-    this.imageReader = createImageReader(width, height);
-    this.kind = kind;
-    init();
+    this(context, createImageReader(width, height), kind);
+  }
+
+  public FlutterImageView(@NonNull Context context) {
+    this(context, 1, 1, SurfaceKind.background);
+  }
+
+  public FlutterImageView(@NonNull Context context, @NonNull AttributeSet attrs) {
+    this(context, 1, 1, SurfaceKind.background);
   }
 
   @VisibleForTesting
-  FlutterImageView(@NonNull Context context, @NonNull ImageReader imageReader, SurfaceKind kind) {
+  /*package*/ FlutterImageView(
+      @NonNull Context context, @NonNull ImageReader imageReader, SurfaceKind kind) {
     super(context, null);
     this.imageReader = imageReader;
     this.kind = kind;
@@ -146,20 +144,14 @@ public class FlutterImageView extends View implements RenderSurface {
       return;
     }
     setAlpha(0.0f);
-    // Drop the lastest image as it shouldn't render this image if this view is
+    // Drop the latest image as it shouldn't render this image if this view is
     // attached to the renderer again.
     acquireLatestImage();
     // Clear drawings.
-    pendingImages = 0;
     currentBitmap = null;
-    if (nextImage != null) {
-      nextImage.close();
-      nextImage = null;
-    }
-    if (currentImage != null) {
-      currentImage.close();
-      currentImage = null;
-    }
+
+    // Close and clear the current image if any.
+    closeCurrentImage();
     invalidate();
     isAttachedToFlutterRenderer = false;
   }
@@ -168,28 +160,29 @@ public class FlutterImageView extends View implements RenderSurface {
     // Not supported.
   }
 
-  /** Acquires the next image to be drawn to the {@link android.graphics.Canvas}. */
+  /**
+   * Acquires the next image to be drawn to the {@link android.graphics.Canvas}. Returns true if
+   * there's an image available in the queue.
+   */
   @TargetApi(19)
   public boolean acquireLatestImage() {
     if (!isAttachedToFlutterRenderer) {
       return false;
     }
-    // There's no guarantee that the image will be closed before the next call to
-    // `acquireLatestImage()`. For example, the device may not produce new frames if
-    // it's in sleep mode, so the calls to `invalidate()` will be queued up
+    // 1. `acquireLatestImage()` may return null if no new image is available.
+    // 2. There's no guarantee that `onDraw()` is called after `invalidate()`.
+    // For example, the device may not produce new frames if it's in sleep mode
+    // or some special Android devices so the calls to `invalidate()` queued up
     // until the device produces a new frame.
-    //
-    // While the engine will also stop producing frames, there is a race condition.
-    //
-    // To avoid exceptions, check if a new image can be acquired.
-    if (pendingImages < imageReader.getMaxImages()) {
-      nextImage = imageReader.acquireLatestImage();
-      if (nextImage != null) {
-        pendingImages++;
-      }
+    // 3. While the engine will also stop producing frames, there is a race condition.
+    final Image newImage = imageReader.acquireLatestImage();
+    if (newImage != null) {
+      // Only close current image after acquiring valid new image
+      closeCurrentImage();
+      currentImage = newImage;
+      invalidate();
     }
-    invalidate();
-    return nextImage != null;
+    return newImage != null;
   }
 
   /** Creates a new image reader with the provided size. */
@@ -200,36 +193,33 @@ public class FlutterImageView extends View implements RenderSurface {
     if (width == imageReader.getWidth() && height == imageReader.getHeight()) {
       return;
     }
+
     // Close resources.
-    if (nextImage != null) {
-      nextImage.close();
-      nextImage = null;
-    }
-    if (currentImage != null) {
-      currentImage.close();
-      currentImage = null;
-    }
+    closeCurrentImage();
+
+    // Close all the resources associated with the image reader,
+    // including the images.
     imageReader.close();
     // Image readers cannot be resized once created.
     imageReader = createImageReader(width, height);
-    pendingImages = 0;
   }
 
   @Override
   protected void onDraw(Canvas canvas) {
     super.onDraw(canvas);
-    if (nextImage != null) {
-      if (currentImage != null) {
-        currentImage.close();
-        pendingImages--;
-      }
-      currentImage = nextImage;
-      nextImage = null;
+    if (currentImage != null) {
       updateCurrentBitmap();
     }
-
     if (currentBitmap != null) {
       canvas.drawBitmap(currentBitmap, 0, 0, null);
+    }
+  }
+
+  private void closeCurrentImage() {
+    // Close and clear the current image if any.
+    if (currentImage != null) {
+      currentImage.close();
+      currentImage = null;
     }
   }
 
@@ -238,6 +228,7 @@ public class FlutterImageView extends View implements RenderSurface {
     if (android.os.Build.VERSION.SDK_INT >= 29) {
       final HardwareBuffer buffer = currentImage.getHardwareBuffer();
       currentBitmap = Bitmap.wrapHardwareBuffer(buffer, ColorSpace.get(ColorSpace.Named.SRGB));
+      buffer.close();
     } else {
       final Plane[] imagePlanes = currentImage.getPlanes();
       if (imagePlanes.length != 1) {
@@ -255,8 +246,9 @@ public class FlutterImageView extends View implements RenderSurface {
             Bitmap.createBitmap(
                 desiredWidth, desiredHeight, android.graphics.Bitmap.Config.ARGB_8888);
       }
-
-      currentBitmap.copyPixelsFromBuffer(imagePlane.getBuffer());
+      ByteBuffer buffer = imagePlane.getBuffer();
+      buffer.rewind();
+      currentBitmap.copyPixelsFromBuffer(buffer);
     }
   }
 

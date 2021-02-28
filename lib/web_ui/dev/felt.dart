@@ -38,7 +38,7 @@ void main(List<String> args) async {
   try {
     final bool result = (await runner.run(args)) as bool;
     if (result == false) {
-      print('Sub-command returned false: `${args.join(' ')}`');
+      print('Sub-command failed: `${args.join(' ')}`');
       exitCode = 1;
     }
   } on UsageException catch (e) {
@@ -47,12 +47,18 @@ void main(List<String> args) async {
   } on ToolException catch (e) {
     io.stderr.writeln(e.message);
     exitCode = 1;
+  } on ProcessException catch (e) {
+    io.stderr.writeln('description: ${e.description}'
+        'executable: ${e.executable} '
+        'arguments: ${e.arguments} '
+        'exit code: ${e.exitCode}');
+    exitCode = e.exitCode;
   } catch (e) {
     rethrow;
   } finally {
     await cleanup();
     // The exit code is changed by one of the branches.
-    if(exitCode != -1) {
+    if (exitCode != -1) {
       io.exit(exitCode);
     }
   }

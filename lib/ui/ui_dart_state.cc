@@ -5,7 +5,7 @@
 #include "flutter/lib/ui/ui_dart_state.h"
 
 #include "flutter/fml/message_loop.h"
-#include "flutter/lib/ui/window/window.h"
+#include "flutter/lib/ui/window/platform_configuration.h"
 #include "third_party/tonic/converter/dart_converter.h"
 #include "third_party/tonic/dart_message_handler.h"
 
@@ -18,6 +18,7 @@ UIDartState::UIDartState(
     TaskObserverAdd add_callback,
     TaskObserverRemove remove_callback,
     fml::WeakPtr<SnapshotDelegate> snapshot_delegate,
+    fml::WeakPtr<HintFreedDelegate> hint_freed_delegate,
     fml::WeakPtr<IOManager> io_manager,
     fml::RefPtr<SkiaUnrefQueue> skia_unref_queue,
     fml::WeakPtr<ImageDecoder> image_decoder,
@@ -26,20 +27,25 @@ UIDartState::UIDartState(
     std::string logger_prefix,
     UnhandledExceptionCallback unhandled_exception_callback,
     std::shared_ptr<IsolateNameServer> isolate_name_server,
-    bool is_root_isolate)
+    bool is_root_isolate,
+    std::shared_ptr<VolatilePathTracker> volatile_path_tracker,
+    bool enable_skparagraph)
     : task_runners_(std::move(task_runners)),
       add_callback_(std::move(add_callback)),
       remove_callback_(std::move(remove_callback)),
       snapshot_delegate_(std::move(snapshot_delegate)),
+      hint_freed_delegate_(std::move(hint_freed_delegate)),
       io_manager_(std::move(io_manager)),
       skia_unref_queue_(std::move(skia_unref_queue)),
       image_decoder_(std::move(image_decoder)),
+      volatile_path_tracker_(std::move(volatile_path_tracker)),
       advisory_script_uri_(std::move(advisory_script_uri)),
       advisory_script_entrypoint_(std::move(advisory_script_entrypoint)),
       logger_prefix_(std::move(logger_prefix)),
       is_root_isolate_(is_root_isolate),
       unhandled_exception_callback_(unhandled_exception_callback),
-      isolate_name_server_(std::move(isolate_name_server)) {
+      isolate_name_server_(std::move(isolate_name_server)),
+      enable_skparagraph_(enable_skparagraph) {
   AddOrRemoveTaskObserver(true /* add */);
 }
 
@@ -73,18 +79,23 @@ void UIDartState::ThrowIfUIOperationsProhibited() {
 
 void UIDartState::SetDebugName(const std::string debug_name) {
   debug_name_ = debug_name;
-  if (window_)
-    window_->client()->UpdateIsolateDescription(debug_name_, main_port_);
+  if (platform_configuration_) {
+    platform_configuration_->client()->UpdateIsolateDescription(debug_name_,
+                                                                main_port_);
+  }
 }
 
 UIDartState* UIDartState::Current() {
   return static_cast<UIDartState*>(DartState::Current());
 }
 
-void UIDartState::SetWindow(std::unique_ptr<Window> window) {
-  window_ = std::move(window);
-  if (window_)
-    window_->client()->UpdateIsolateDescription(debug_name_, main_port_);
+void UIDartState::SetPlatformConfiguration(
+    std::unique_ptr<PlatformConfiguration> platform_configuration) {
+  platform_configuration_ = std::move(platform_configuration);
+  if (platform_configuration_) {
+    platform_configuration_->client()->UpdateIsolateDescription(debug_name_,
+                                                                main_port_);
+  }
 }
 
 const TaskRunners& UIDartState::GetTaskRunners() const {
@@ -97,6 +108,11 @@ fml::WeakPtr<IOManager> UIDartState::GetIOManager() const {
 
 fml::RefPtr<flutter::SkiaUnrefQueue> UIDartState::GetSkiaUnrefQueue() const {
   return skia_unref_queue_;
+}
+
+std::shared_ptr<VolatilePathTracker> UIDartState::GetVolatilePathTracker()
+    const {
+  return volatile_path_tracker_;
 }
 
 void UIDartState::ScheduleMicrotask(Dart_Handle closure) {
@@ -131,7 +147,11 @@ fml::WeakPtr<SnapshotDelegate> UIDartState::GetSnapshotDelegate() const {
   return snapshot_delegate_;
 }
 
-fml::WeakPtr<GrContext> UIDartState::GetResourceContext() const {
+fml::WeakPtr<HintFreedDelegate> UIDartState::GetHintFreedDelegate() const {
+  return hint_freed_delegate_;
+}
+
+fml::WeakPtr<GrDirectContext> UIDartState::GetResourceContext() const {
   if (!io_manager_) {
     return {};
   }
@@ -165,6 +185,10 @@ void UIDartState::ReportUnhandledException(const std::string& error,
   // just log the exception.
   FML_LOG(ERROR) << "Unhandled Exception: " << error << std::endl
                  << stack_trace;
+}
+
+bool UIDartState::enable_skparagraph() const {
+  return enable_skparagraph_;
 }
 
 }  // namespace flutter

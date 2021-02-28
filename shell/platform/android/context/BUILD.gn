@@ -14,5 +14,6 @@ source_set("context") {
 
   deps = [
     "//flutter/fml",
+    "//third_party/skia",
   ]
 }

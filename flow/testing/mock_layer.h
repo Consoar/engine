@@ -28,8 +28,15 @@ class MockLayer : public Layer {
   const MutatorsStack& parent_mutators() { return parent_mutators_; }
   const SkMatrix& parent_matrix() { return parent_matrix_; }
   const SkRect& parent_cull_rect() { return parent_cull_rect_; }
-  float parent_elevation() { return parent_elevation_; }
   bool parent_has_platform_view() { return parent_has_platform_view_; }
+
+#ifdef FLUTTER_ENABLE_DIFF_CONTEXT
+
+  bool IsReplacing(DiffContext* context, const Layer* layer) const override;
+  void Diff(DiffContext* context, const Layer* old_layer) override;
+  const MockLayer* as_mock_layer() const override { return this; }
+
+#endif
 
  private:
   MutatorsStack parent_mutators_;
@@ -37,7 +44,6 @@ class MockLayer : public Layer {
   SkRect parent_cull_rect_ = SkRect::MakeEmpty();
   SkPath fake_paint_path_;
   SkPaint fake_paint_;
-  float parent_elevation_ = 0;
   bool parent_has_platform_view_ = false;
   bool fake_has_platform_view_ = false;
   bool fake_needs_system_composite_ = false;

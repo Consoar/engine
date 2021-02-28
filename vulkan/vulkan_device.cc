@@ -68,6 +68,8 @@ VulkanDevice::VulkanDevice(VulkanProcTable& p_vk,
     VK_FUCHSIA_EXTERNAL_MEMORY_EXTENSION_NAME,
     VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
     VK_FUCHSIA_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
+    VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+    VK_FUCHSIA_BUFFER_COLLECTION_EXTENSION_NAME,
 #endif
   };
 
@@ -287,9 +289,11 @@ int VulkanDevice::ChooseSurfaceFormat(const VulkanSurface& surface,
     return -1;
   }
 
-  VkSurfaceFormatKHR formats[format_count];
+  std::vector<VkSurfaceFormatKHR> formats;
+  formats.resize(format_count);
+
   if (VK_CALL_LOG_ERROR(vk.GetPhysicalDeviceSurfaceFormatsKHR(
-          physical_device_, surface.Handle(), &format_count, formats)) !=
+          physical_device_, surface.Handle(), &format_count, formats.data())) !=
       VK_SUCCESS) {
     return -1;
   }

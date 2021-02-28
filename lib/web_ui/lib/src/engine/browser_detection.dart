@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-
+// @dart = 2.12
 part of engine;
 
 /// The HTML engine used by the current browser.
@@ -25,6 +25,14 @@ enum BrowserEngine {
 
   /// We were unable to detect the current browser engine.
   unknown,
+}
+
+/// html webgl version qualifier constants.
+abstract class WebGLVersion {
+  // WebGL 1.0 is based on OpenGL ES 2.0 / GLSL 1.00
+  static const int webgl1 = 1;
+  // WebGL 2.0 is based on OpenGL ES 3.0 / GLSL 3.00
+  static const int webgl2 = 2;
 }
 
 /// Lazily initialized current browser engine.
@@ -115,7 +123,7 @@ OperatingSystem get operatingSystem {
 OperatingSystem? debugOperatingSystemOverride;
 
 OperatingSystem _detectOperatingSystem() {
-  final String platform = html.window.navigator.platform;
+  final String platform = html.window.navigator.platform!;
   final String userAgent = html.window.navigator.userAgent;
 
   if (platform.startsWith('Mac')) {
@@ -159,3 +167,32 @@ bool get isDesktop => _desktopOperatingSystems.contains(operatingSystem);
 /// See [_desktopOperatingSystems].
 /// See [isDesktop].
 bool get isMobile => !isDesktop;
+
+int? _cachedWebGLVersion;
+
+/// The highest WebGL version supported by the current browser, or -1 if WebGL
+/// is not supported.
+int get webGLVersion => _cachedWebGLVersion ?? (_cachedWebGLVersion = _detectWebGLVersion());
+
+/// Detects the highest WebGL version supported by the current browser, or
+/// -1 if WebGL is not supported.
+///
+/// Chrome reports that `WebGL2RenderingContext` is available even when WebGL 2 is
+/// disabled due hardware-specific issues. This happens, for example, on Chrome on
+/// Moto E5. Therefore checking for the presence of `WebGL2RenderingContext` or
+/// using the current [browserEngine] is insufficient.
+///
+/// Our CanvasKit backend is affected due to: https://github.com/emscripten-core/emscripten/issues/11819
+int _detectWebGLVersion() {
+  final html.CanvasElement canvas = html.CanvasElement(
+    width: 1,
+    height: 1,
+  );
+  if (canvas.getContext('webgl2') != null) {
+    return WebGLVersion.webgl2;
+  }
+  if (canvas.getContext('webgl') != null) {
+    return WebGLVersion.webgl1;
+  }
+  return -1;
+}
